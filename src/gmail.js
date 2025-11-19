@@ -67,6 +67,11 @@ async function scanEmails() {
                     const mimeType = part.mimeType;
                     // Filter for PDF or Images
                     if (mimeType === 'application/pdf' || mimeType.startsWith('image/')) {
+                        // Skip small files (icons, logos, footers) < 20KB
+                        if (part.body.size && part.body.size < 20000) {
+                            console.log(`  -> Skipping small file: ${part.filename} (${part.body.size} bytes)`);
+                            continue;
+                        }
                         console.log(`  Found attachment: ${part.filename} (${mimeType})`);
 
                         const attachment = await gmail.users.messages.attachments.get({

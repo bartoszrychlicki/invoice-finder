@@ -17,17 +17,29 @@ async function analyzeAttachment(fileBuffer, mimeType) {
     const dataUrl = `data:${mimeType};base64,${base64File}`;
 
     const prompt = `
-    You are an expert accountant assistant. Analyze the attached document.
-    1. Determine if it is an invoice or a receipt (is_invoice: true/false).
-    2. If true, extract the following fields:
+    You are an expert accountant assistant. Your task is to strictly filter and analyze documents.
+    
+    STEP 1: CLASSIFICATION (CRITICAL)
+    Analyze the image visually. Is it a valid fiscal document (Invoice, Receipt, Bill)?
+    
+    It is NOT a fiscal document if it is:
+    - A company logo or icon (e.g., a small house, envelope, phone icon).
+    - A marketing banner or email footer.
+    - A random photo or screenshot not related to a transaction.
+    - A document without clear financial data (amounts, dates, tax IDs).
+    
+    If it is NOT a fiscal document, return {"is_invoice": false, "data": null} immediately. DO NOT HALLUCINATE DATA.
+    
+    STEP 2: EXTRACTION
+    Only if it IS a valid fiscal document, extract the following fields:
        - number (invoice number)
        - issue_date (YYYY-MM-DD)
-       - total_amount (number)
-       - currency (ISO code)
-       - contractor_name
-       - contractor_tax_id
-       - my_company_name
-       - my_company_tax_id
+       - total_amount (number, use dot for decimals)
+       - currency (ISO code, e.g., PLN, USD, EUR)
+       - contractor_name (seller)
+       - contractor_tax_id (NIP/VAT ID)
+       - my_company_name (buyer)
+       - my_company_tax_id (buyer NIP/VAT ID)
     
     Return ONLY a valid JSON object with this structure:
     {
