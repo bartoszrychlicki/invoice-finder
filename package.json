@@ -1,0 +1,21 @@
+{
+  "name": "frozen-meteor",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "googleapis": "^166.0.0",
+    "nodemailer": "^7.0.10",
+    "openai": "^6.9.1",
+    "tmp": "^0.2.5"
+  }
+}
