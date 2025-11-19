@@ -18,21 +18,23 @@ async function logToSheet(data, emailInfo) {
 
     const row = [
         new Date().toISOString(), // Timestamp
-        emailInfo.from,
-        emailInfo.subject,
-        data.number,
-        data.issue_date,
-        data.total_amount,
-        data.currency,
-        data.contractor_name,
-        data.contractor_tax_id,
-        emailInfo.messageId,
+        emailInfo.from,           // Email From
+        emailInfo.subject,        // Email Subject
+        data.number,              // Document Number
+        data.issue_date,          // Issue Date
+        data.total_amount,        // Total Amount
+        data.currency,            // Currency
+        data.seller_name,         // Seller Name
+        data.seller_tax_id,       // Seller NIP/Tax ID
+        data.buyer_name,          // Buyer Name
+        data.buyer_tax_id,        // Buyer NIP/Tax ID
+        emailInfo.messageId,      // Gmail Message ID
     ];
 
     try {
         await sheets.spreadsheets.values.append({
             spreadsheetId,
-            range: 'A:J', // Will use the first sheet automatically
+            range: 'A:M', // Extended to column M to accommodate all fields
             valueInputOption: 'USER_ENTERED',
             requestBody: {
                 values: [row],

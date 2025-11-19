@@ -20,7 +20,7 @@ async function analyzeAttachment(fileBuffer, mimeType) {
     You are an expert accountant assistant. Your task is to strictly filter and analyze documents.
     
     STEP 1: CLASSIFICATION (CRITICAL)
-    Analyze the image visually. Is it a valid fiscal document (Invoice, Receipt, Bill)?
+    Analyze the image visually. Is it a valid fiscal document (Invoice, Receipt, Bill, Paragon)?
     
     It is NOT a fiscal document if it is:
     - A company logo or icon (e.g., a small house, envelope, phone icon).
@@ -30,16 +30,26 @@ async function analyzeAttachment(fileBuffer, mimeType) {
     
     If it is NOT a fiscal document, return {"is_invoice": false, "data": null} immediately. DO NOT HALLUCINATE DATA.
     
-    STEP 2: EXTRACTION
-    Only if it IS a valid fiscal document, extract the following fields:
-       - number (invoice number)
-       - issue_date (YYYY-MM-DD)
-       - total_amount (number, use dot for decimals)
+    STEP 2: EXTRACTION - BUYER vs SELLER
+    Only if it IS a valid fiscal document, extract the following fields.
+    
+    IMPORTANT: Distinguish between BUYER (nabywca/purchaser) and SELLER (sprzedawca/vendor):
+    - SELLER is the company/person ISSUING the document (who is selling goods/services)
+    - BUYER is the company/person RECEIVING the document (who is purchasing)
+    
+    SPECIAL RULE FOR RECEIPTS (Paragon):
+    - If you see NIP: 9571130261 anywhere on the document, this is the BUYER's NIP (Rychlicki Holding Sp. z o.o.)
+    - The SELLER information should be found elsewhere on the receipt (usually at the top)
+    
+    Extract these fields:
+       - number (document number/invoice number)
+       - issue_date (date of issue, format: YYYY-MM-DD)
+       - total_amount (total amount as number, use dot for decimals)
        - currency (ISO code, e.g., PLN, USD, EUR)
-       - contractor_name (seller)
-       - contractor_tax_id (NIP/VAT ID)
-       - my_company_name (buyer)
-       - my_company_tax_id (buyer NIP/VAT ID)
+       - seller_name (name of the company/person SELLING)
+       - seller_tax_id (NIP/VAT ID of SELLER)
+       - buyer_name (name of the company/person BUYING)
+       - buyer_tax_id (NIP/VAT ID of BUYER - if you see 9571130261, this is the buyer)
     
     Return ONLY a valid JSON object with this structure:
     {
@@ -49,10 +59,10 @@ async function analyzeAttachment(fileBuffer, mimeType) {
          "issue_date": string | null,
          "total_amount": number | null,
          "currency": string | null,
-         "contractor_name": string | null,
-         "contractor_tax_id": string | null,
-         "my_company_name": string | null,
-         "my_company_tax_id": string | null
+         "seller_name": string | null,
+         "seller_tax_id": string | null,
+         "buyer_name": string | null,
+         "buyer_tax_id": string | null
       }
     }
   `;
