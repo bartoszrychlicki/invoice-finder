@@ -110,16 +110,21 @@ async function scanEmails() {
                         if (analysis.is_invoice) {
                             console.log(`    -> Identified as INVOICE. Data:`, analysis.data);
 
-                            // Log to Sheets
-                            await logToSheet(analysis.data, { from, subject, messageId: message.id });
+                            // Log to Sheets (returns duplicate status)
+                            const sheetResult = await logToSheet(analysis.data, { from, subject, messageId: message.id });
 
-                            // Forward/Send Email (send ORIGINAL file)
-                            await sendInvoiceEmail(auth, part.filename, mimeType, fileBuffer, analysis.data);
+                            // Only send email if NOT a duplicate
+                            if (!sheetResult.isDuplicate) {
+                                console.log(`    -> Sending email (new invoice)...`);
+                                await sendInvoiceEmail(auth, part.filename, mimeType, fileBuffer, analysis.data);
+                            } else {
+                                console.log(`    -> Skipping email send (duplicate detected)`);
+                            }
 
                             results.push({
                                 messageId: message.id,
                                 file: part.filename,
-                                status: 'processed',
+                                status: sheetResult.isDuplicate ? 'duplicate' : 'processed',
                                 data: analysis.data
                             });
                         } else {
