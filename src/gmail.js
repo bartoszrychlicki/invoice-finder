@@ -14,10 +14,10 @@ async function scanEmails() {
     const auth = getOAuth2Client();
     const userId = 'me';
 
-    // Get start of today in seconds
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const after = Math.floor(today.getTime() / 1000);
+    // Get timestamp for 24 hours ago to ensure full daily coverage
+    const oneDayAgo = new Date();
+    oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+    const after = Math.floor(oneDayAgo.getTime() / 1000);
 
     // Search for emails with attachments AND invoice-related keywords
     const keywords = '(faktura OR faktury OR invoice OR rachunek OR paragon OR inv)';
