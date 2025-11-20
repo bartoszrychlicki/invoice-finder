@@ -131,12 +131,19 @@ async function scanEmails() {
                             // Log to Sheets (returns duplicate status)
                             const sheetResult = await logToSheet(analysis.data, { from, subject, messageId: message.id });
 
-                            // Only send email if NOT a duplicate
-                            if (!sheetResult.isDuplicate) {
-                                console.log(`    -> Sending email (new invoice)...`);
+                            // Check if buyer NIP matches (normalize both for comparison)
+                            const expectedBuyerNip = process.env.BUYER_TAX_ID?.replace(/[^0-9]/g, '') || '';
+                            const actualBuyerNip = analysis.data.buyer_tax_id?.replace(/[^0-9]/g, '') || '';
+                            const nipMatches = expectedBuyerNip && actualBuyerNip === expectedBuyerNip;
+
+                            // Only send email if NOT a duplicate AND buyer NIP matches
+                            if (!sheetResult.isDuplicate && nipMatches) {
+                                console.log(`    -> Sending email (new invoice with matching buyer NIP)...`);
                                 await sendInvoiceEmail(auth, part.filename, mimeType, fileBuffer, analysis.data);
-                            } else {
+                            } else if (sheetResult.isDuplicate) {
                                 console.log(`    -> Skipping email send (duplicate detected)`);
+                            } else if (!nipMatches) {
+                                console.log(`    -> Skipping email send (buyer NIP does not match: expected ${expectedBuyerNip}, got ${actualBuyerNip})`);
                             }
 
                             results.push({
