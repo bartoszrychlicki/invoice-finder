@@ -4,7 +4,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node src/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "jest"
   },
   "keywords": [],
   "author": "",
@@ -17,5 +17,8 @@
     "nodemailer": "^7.0.10",
     "openai": "^6.9.1",
     "tmp": "^0.2.5"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
   }
 }
