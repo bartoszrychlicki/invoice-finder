@@ -1,7 +1,7 @@
 const { google } = require('googleapis');
 const { getOAuth2Client } = require('./auth');
 const { analyzeAttachment, generateJustification } = require('./openai');
-const { logToSheet } = require('./sheets');
+const { logToSheet, isDuplicate } = require('./sheets');
 const { convertPdfToImage } = require('./pdf');
 
 const gmail = google.gmail('v1');
@@ -110,23 +110,23 @@ async function scanEmails() {
                         if (analysis.is_invoice) {
                             console.log(`    -> Identified as INVOICE. Data:`, analysis.data);
 
-                            // Check for duplicates first (to avoid generating justification for duplicates)
-                            // We need to check duplicates BEFORE logging, but logToSheet handles both check and log.
-                            // So we will modify the flow:
-                            // 1. Check if duplicate (using a dry-run or just letting logToSheet handle it, but we want to save LLM tokens)
-                            // Actually, our logToSheet does both. To save tokens, we should ideally check first.
-                            // But for now, let's generate justification ONLY if we are going to send it (i.e. it's likely new).
-                            // However, logToSheet needs the data to log.
+                            // Check for duplicates FIRST (to save OpenAI tokens on justification)
+                            const auth = await getOAuth2Client();
+                            const sheets = google.sheets({ version: 'v4', auth });
+                            const spreadsheetId = process.env.SPREADSHEET_ID;
 
-                            // Let's generate justification. It costs a bit, but ensures data is complete in Sheet even if duplicate.
-                            // OR: We can skip justification for duplicates if we separate check and log.
-                            // Current design: logToSheet does check.
+                            const duplicate = await isDuplicate(sheets, spreadsheetId, analysis.data);
 
-                            // Let's generate justification for ALL valid invoices to be safe and have complete data.
-                            console.log(`    -> Generating creative justification...`);
-                            const justification = await generateJustification(analysis.data, process.env.BUSINESS_CONTEXT);
-                            analysis.data.justification = justification;
-                            console.log(`    -> Justification: ${justification}`);
+                            // Only generate justification if NOT a duplicate
+                            if (!duplicate) {
+                                console.log(`    -> Generating creative justification...`);
+                                const justification = await generateJustification(analysis.data, process.env.BUSINESS_CONTEXT);
+                                analysis.data.justification = justification;
+                                console.log(`    -> Justification: ${justification}`);
+                            } else {
+                                console.log(`    -> Skipping justification generation (duplicate detected)`);
+                                analysis.data.justification = 'N/A (duplikat)';
+                            }
 
                             // Log to Sheets (returns duplicate status)
                             const sheetResult = await logToSheet(analysis.data, { from, subject, messageId: message.id });

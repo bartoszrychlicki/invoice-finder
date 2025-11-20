@@ -177,4 +177,4 @@ async function logToSheet(data, emailInfo) {
     }
 }
 
-module.exports = { logToSheet };
+module.exports = { logToSheet, isDuplicate };
