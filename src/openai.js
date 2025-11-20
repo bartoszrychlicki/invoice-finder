@@ -1,42 +1,48 @@
 const OpenAI = require('openai');
+require('dotenv').config();
 
 const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
 });
 
 /**
- * Analyzes an attachment (image or PDF) to determine if it's an invoice/receipt
- * and extracts relevant data.
- * 
- * @param {Buffer} fileBuffer - The file content.
- * @param {string} mimeType - The MIME type of the file.
- * @returns {Promise<Object>} - The extraction result.
+ * Analyzes an image attachment using OpenAI GPT-4o to extract invoice data.
+ * @param {Buffer} imageBuffer - The image buffer.
+ * @param {string} mimeType - The MIME type of the image (e.g., 'image/jpeg', 'image/png').
+ * @returns {Promise<Object>} - The extracted data or null if failed.
  */
-async function analyzeAttachment(fileBuffer, mimeType) {
-    const base64File = fileBuffer.toString('base64');
-    const dataUrl = `data:${mimeType};base64,${base64File}`;
+async function analyzeAttachment(imageBuffer, mimeType) {
+    const base64Image = imageBuffer.toString('base64');
+    const dataUrl = `data:${mimeType};base64,${base64Image}`;
 
     const prompt = `
-    You are an expert accountant assistant. Your task is to strictly filter and analyze documents.
+    Analyze this image. Is it a fiscal document (invoice, receipt, bill)?
     
-    STEP 1: CLASSIFICATION (CRITICAL)
-    Analyze the image visually. Is it a valid fiscal document (Invoice, Receipt, Bill, Paragon)?
+    STRICT RULES:
+    - If it is a logo, icon, marketing banner, email footer, random photo, or screenshot without financial data -> Return {"is_invoice": false, "data": null}
+    - If it is a valid fiscal document -> Return {"is_invoice": true, "data": {...}}
     
-    It is NOT a fiscal document if it is:
-    - A company logo or icon (e.g., a small house, envelope, phone icon).
-    - A marketing banner or email footer.
-    - A random photo or screenshot not related to a transaction.
-    - A document without clear financial data (amounts, dates, tax IDs).
+    EXTRACT THESE FIELDS:
+    - number: Document number (e.g. "F/2023/01").
+    - issue_date: Date of issue (YYYY-MM-DD).
+    - total_amount: Total gross amount (float).
+    - currency: Currency code (e.g. PLN, EUR).
+    - seller_name: Name of the seller/vendor.
+    - seller_tax_id: Tax ID (NIP) of the seller.
+    - buyer_name: Name of the buyer.
+    - buyer_tax_id: Tax ID (NIP) of the buyer.
+    - items: A comma-separated string of the main product/service names listed on the invoice (e.g. "Hosting Service, Domain Renewal").
+
+    SPECIAL RULE FOR BUYER:
+    - If you see NIP "9571130261", that is the BUYER (Rychlicki Holding Sp. z o.o.).
+    - Do NOT confuse buyer and seller.
     
-    If it is NOT a fiscal document, return {"is_invoice": false, "data": null} immediately. DO NOT HALLUCINATE DATA.
-         "buyer_tax_id": string | null
-      }
-    }
-  `;
+    Return ONLY raw JSON. No markdown formatting.
+    `;
 
     try {
         const response = await openai.chat.completions.create({
-            model: "gpt-4o", // Or gpt-4-turbo
+            model: "gpt-4o",
             messages: [
                 {
                     role: "user",
@@ -57,15 +63,12 @@ async function analyzeAttachment(fileBuffer, mimeType) {
         const content = response.choices[0].message.content;
         return JSON.parse(content);
     } catch (error) {
-        console.error("Error analyzing attachment with OpenAI:");
-        console.error("  Error message:", error.message);
-        console.error("  Error type:", error.constructor.name);
+        console.error("Error analyzing attachment with OpenAI:", error);
         if (error.response) {
-            console.error("  Response status:", error.response.status);
-            console.error("  Response data:", error.response.data);
+            console.error("  Error type:", error.response.data.error.type);
+            console.error("  Error message:", error.response.data.error.message);
         }
-        // Fallback - return a valid structure
-        return { is_invoice: false, data: null, error: error.message };
+        return null;
     }
 }
 
@@ -120,4 +123,3 @@ async function generateJustification(invoiceData, businessContext) {
 }
 
 module.exports = { analyzeAttachment, generateJustification };
-
