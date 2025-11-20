@@ -2,6 +2,16 @@
 
 This application scans your Gmail for invoices, processes them with OpenAI, and logs them to Google Sheets.
 
+## Features
+
+1.  **Automated Scanning**: Scans Gmail for attachments (PDF/Images) from the last 24 hours.
+2.  **AI Extraction**: Uses OpenAI GPT-4o to extract invoice data (Number, Date, Amount, Seller, Buyer, Items).
+3.  **Smart Duplicate Detection**: Uses a scoring system to detect duplicates (even with minor OCR errors) to prevent double logging.
+4.  **Creative Cost Justification**: Generates a creative business justification for each expense based on your business context (only for new invoices).
+5.  **Buyer NIP Filtering**: Only forwards invoices where the Buyer NIP matches your NIP (`BUYER_TAX_ID`).
+6.  **Google Sheets Logging**: Logs all processed documents to a Google Sheet.
+7.  **Email Forwarding**: Forwards valid, non-duplicate invoices to a target email address.
+
 ## Prerequisites
 
 1.  **Google Cloud Project**: Create a project in [Google Cloud Console](https://console.cloud.google.com/).
@@ -32,41 +42,65 @@ This application scans your Gmail for invoices, processes them with OpenAI, and 
     *   **Common mistake**: If you skip the Settings step (⚙️), the token will NOT work with your Client ID!
 
 2.  **Environment Variables**:
-    *   Copy `.env.example` to `.env` (for local testing) or prepare them for Cloud Run.
+    *   Copy `.env.example` to `.env` and fill in the values:
+        - `GOOGLE_CLIENT_ID`: Your OAuth Client ID
+        - `GOOGLE_CLIENT_SECRET`: Your OAuth Client Secret
+        - `GOOGLE_REFRESH_TOKEN`: Your OAuth Refresh Token
+        - `OPENAI_API_KEY`: Your OpenAI API Key
+        - `TARGET_EMAIL`: Email address to forward invoices to
+        - `SPREADSHEET_ID`: ID of the Google Sheet to log data to
+        - `BUYER_TAX_ID`: Your NIP (e.g., `9571130261`). Only invoices with this Buyer NIP will be forwarded.
+        - `BUSINESS_CONTEXT`: Description of your business for generating cost justifications.
+
+## Google Sheet Structure
+
+Ensure your Google Sheet has the following 15 columns in the first row:
+
+```
+Timestamp, Email From, Email Subject, Document Number, Issue Date, Total Amount, Currency, Seller Name, Seller Tax ID, Buyer Name, Buyer Tax ID, Gmail Message ID, Status, Items, Justification
+```
 
 ## Local Testing
 
 1.  Fill in `.env`.
-2.  Run `npm start`.
-3.  In another terminal, trigger the scan:
+2.  Run tests to verify logic:
+    ```bash
+    npm test
+    ```
+3.  Start the server:
+    ```bash
+    npm start
+    ```
+4.  In another terminal, trigger the scan:
     ```bash
     curl -X POST http://localhost:8080/scan
     ```
 
 ## Deployment to Cloud Run
 
-1.  **Build and Push Docker Image**:
+1.  **Using Deploy Script**:
+    The project includes a `deploy.sh` script that handles deployment and environment variables (including special characters).
     ```bash
-    gcloud builds submit --tag gcr.io/YOUR_PROJECT_ID/gmail-invoice-scanner
+    ./deploy.sh
     ```
 
-2.  **Deploy to Cloud Run**:
+2.  **Manual Deployment**:
     ```bash
+    # Create env.yaml with your variables first
     gcloud run deploy gmail-invoice-scanner \
       --image gcr.io/YOUR_PROJECT_ID/gmail-invoice-scanner \
       --platform managed \
       --region us-central1 \
       --allow-unauthenticated \
-      --set-env-vars="GOOGLE_CLIENT_ID=...,GOOGLE_CLIENT_SECRET=...,GOOGLE_REFRESH_TOKEN=...,OPENAI_API_KEY=...,TARGET_EMAIL=...,SPREADSHEET_ID=..."
+      --env-vars-file env.yaml
     ```
-    *Note: `--allow-unauthenticated` is used here so Cloud Scheduler can trigger it easily. For better security, use authentication and configure Scheduler with a service account.*
 
 ## Schedule with Cloud Scheduler
 
 1.  Create a job:
     ```bash
-    gcloud scheduler jobs create http scan-invoices-daily \
-      --schedule="0 23 * * *" \
+    gcloud scheduler jobs create http daily-invoice-scan \
+      --schedule="0 8 * * *" \
       --uri="SERVICE_URL/scan" \
       --http-method=POST \
       --time-zone="Europe/Warsaw"
@@ -81,39 +115,12 @@ This application scans your Gmail for invoices, processes them with OpenAI, and 
 ## Troubleshooting
 
 ### Error: `unauthorized_client`
-
-This error occurs when OAuth2 configuration is incorrect. Follow these steps:
-
-1. **Verify Redirect URI in Google Cloud Console**:
-   - Go to [Google Cloud Console](https://console.cloud.google.com/) → APIs & Services → Credentials
-   - Click on your OAuth 2.0 Client ID
-   - Under "Authorized redirect URIs", ensure `https://developers.google.com/oauthplayground` is listed
-   - If not, add it and click Save
-
-2. **Regenerate Refresh Token**:
-   - Go to [OAuth 2.0 Playground](https://developers.google.com/oauthplayground)
-   - Click the gear icon (⚙️) in the top right
-   - Check "Use your own OAuth credentials"
-   - Enter your Client ID and Client Secret
-   - In Step 1, select:
-     - `https://www.googleapis.com/auth/gmail.readonly`
-     - `https://www.googleapis.com/auth/gmail.send`
-     - `https://www.googleapis.com/auth/spreadsheets`
-   - Click "Authorize APIs"
-   - In Step 2, click "Exchange authorization code for tokens"
-   - Copy the new **Refresh token** and update your `.env` file
-
-3. **Verify Environment Variables**:
-   - Ensure `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_REFRESH_TOKEN` are correctly set in `.env`
-   - Make sure there are no extra spaces or quotes
+See "Prerequisites" section about Redirect URI.
 
 ### Error: Missing OpenAI API Key
-
 Ensure `OPENAI_API_KEY` is set in your `.env` file.
 
 ### No emails found
-
-- Check that you have emails with attachments from today
-- Verify Gmail API is enabled in Google Cloud Console
-- Ensure your email is added as a test user in OAuth consent screen
-
+- Check that you have emails with attachments from the last 24 hours.
+- Verify Gmail API is enabled in Google Cloud Console.
+- Ensure your email is added as a test user in OAuth consent screen.
