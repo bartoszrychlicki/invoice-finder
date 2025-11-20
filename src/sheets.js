@@ -23,6 +23,10 @@ async function isDuplicate(sheets, spreadsheetId, data) {
 
         // Check for duplicates based on key fields
         // Row structure: [Timestamp, From, Subject, Number, IssueDate, Amount, Currency, SellerName, SellerTaxID, BuyerName, BuyerTaxID, MessageID, Status]
+
+        console.log(`  -> Checking for duplicates. Looking for: Number=${data.number}, Date=${data.issue_date}, Amount=${data.total_amount}, SellerNIP=${data.seller_tax_id}, BuyerNIP=${data.buyer_tax_id}`);
+        console.log(`  -> Found ${dataRows.length} existing rows in sheet`);
+
         for (const row of dataRows) {
             const existingNumber = row[3];
             const existingIssueDate = row[4];
