@@ -30,7 +30,13 @@ async function isDuplicate(sheets, spreadsheetId, data) {
         for (const row of dataRows) {
             const existingNumber = row[3];
             const existingIssueDate = row[4];
-            const existingAmount = parseFloat(row[5]);
+            // Handle amount parsing carefully (replace comma with dot, remove currency symbols if present)
+            let existingAmountRaw = row[5];
+            if (typeof existingAmountRaw === 'string') {
+                existingAmountRaw = existingAmountRaw.replace(',', '.').replace(/[^\d.-]/g, '');
+            }
+            const existingAmount = parseFloat(existingAmountRaw);
+
             const existingSellerTaxId = row[8];
             const existingBuyerTaxId = row[10];
 
@@ -40,6 +46,12 @@ async function isDuplicate(sheets, spreadsheetId, data) {
             const amountMatch = Math.abs(existingAmount - data.total_amount) < 0.01; // Float comparison
             const sellerMatch = existingSellerTaxId === data.seller_tax_id;
             const buyerMatch = existingBuyerTaxId === data.buyer_tax_id;
+
+            // Log comparison for the first few rows to debug
+            if (dataRows.indexOf(row) < 3) {
+                console.log(`    Comparing with row: Num=${existingNumber}, Date=${existingIssueDate}, Amt=${existingAmount}, Seller=${existingSellerTaxId}, Buyer=${existingBuyerTaxId}`);
+                console.log(`    Matches: Num=${numberMatch}, Date=${dateMatch}, Amt=${amountMatch}, Seller=${sellerMatch}, Buyer=${buyerMatch}`);
+            }
 
             if (numberMatch && dateMatch && amountMatch && sellerMatch && buyerMatch) {
                 console.log(`  -> DUPLICATE FOUND: Document ${data.number} already exists in sheet`);
