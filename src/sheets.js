@@ -8,6 +8,41 @@ const { getOAuth2Client } = require('./auth');
  * @param {Object} data - The invoice data to check.
  * @returns {Promise<boolean>} - True if duplicate found, false otherwise.
  */
+/**
+ * Normalizes a string for comparison (removes non-alphanumeric, lowercase).
+ */
+function normalizeString(str) {
+    if (!str) return '';
+    return str.toString().toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * Parses amount string to float.
+ */
+function parseAmount(val) {
+    if (typeof val === 'number') return val;
+    if (!val) return 0;
+    // Replace comma with dot, remove non-numeric chars except dot and minus
+    const clean = val.toString().replace(',', '.').replace(/[^\d.-]/g, '');
+    return parseFloat(clean) || 0;
+}
+
+/**
+ * Checks if an invoice already exists in the spreadsheet using a Scoring System.
+ * Threshold for duplicate is 80 points.
+ * 
+ * Scoring:
+ * - Amount Match: 40 pts
+ * - Date Match: 30 pts
+ * - Number Match (Normalized): 20 pts
+ * - Seller NIP Match (Normalized): 20 pts
+ * - Buyer NIP Match (Normalized): 10 pts
+ * 
+ * @param {Object} sheets - Google Sheets API instance.
+ * @param {string} spreadsheetId - The spreadsheet ID.
+ * @param {Object} data - The invoice data to check.
+ * @returns {Promise<boolean>} - True if duplicate found, false otherwise.
+ */
 async function isDuplicate(sheets, spreadsheetId, data) {
     try {
         // Fetch all existing rows from the sheet
@@ -21,40 +56,56 @@ async function isDuplicate(sheets, spreadsheetId, data) {
         // Skip header row if exists
         const dataRows = rows.length > 0 && rows[0][0] === 'Timestamp' ? rows.slice(1) : rows;
 
-        // Check for duplicates based on key fields
-        // Row structure: [Timestamp, From, Subject, Number, IssueDate, Amount, Currency, SellerName, SellerTaxID, BuyerName, BuyerTaxID, MessageID, Status]
+        console.log(`  -> Checking for duplicates (Scoring System). Found ${dataRows.length} existing rows.`);
 
-        console.log(`  -> Checking for duplicates. Looking for: Number=${data.number}, Date=${data.issue_date}, Amount=${data.total_amount}, SellerNIP=${data.seller_tax_id}, BuyerNIP=${data.buyer_tax_id}`);
-        console.log(`  -> Found ${dataRows.length} existing rows in sheet`);
+        const targetAmount = parseAmount(data.total_amount);
+        const targetDate = data.issue_date;
+        const targetNumberNorm = normalizeString(data.number);
+        const targetSellerNorm = normalizeString(data.seller_tax_id);
+        const targetBuyerNorm = normalizeString(data.buyer_tax_id);
 
         for (const row of dataRows) {
             const existingNumber = row[3];
             const existingIssueDate = row[4];
-            // Handle amount parsing carefully (replace comma with dot, remove currency symbols if present)
-            let existingAmountRaw = row[5];
-            if (typeof existingAmountRaw === 'string') {
-                existingAmountRaw = existingAmountRaw.replace(',', '.').replace(/[^\d.-]/g, '');
-            }
-            const existingAmount = parseFloat(existingAmountRaw);
-
+            const existingAmount = parseAmount(row[5]);
             const existingSellerTaxId = row[8];
             const existingBuyerTaxId = row[10];
 
-            // Match criteria: same number, date, amount, and tax IDs
-            const numberMatch = existingNumber === data.number;
-            const dateMatch = existingIssueDate === data.issue_date;
-            const amountMatch = Math.abs(existingAmount - data.total_amount) < 0.01; // Float comparison
-            const sellerMatch = existingSellerTaxId === data.seller_tax_id;
-            const buyerMatch = existingBuyerTaxId === data.buyer_tax_id;
+            let score = 0;
 
-            // Log comparison for the first few rows to debug
-            if (dataRows.indexOf(row) < 3) {
-                console.log(`    Comparing with row: Num=${existingNumber}, Date=${existingIssueDate}, Amt=${existingAmount}, Seller=${existingSellerTaxId}, Buyer=${existingBuyerTaxId}`);
-                console.log(`    Matches: Num=${numberMatch}, Date=${dateMatch}, Amt=${amountMatch}, Seller=${sellerMatch}, Buyer=${buyerMatch}`);
+            // 1. Amount Match (40 pts)
+            if (Math.abs(existingAmount - targetAmount) < 0.05) {
+                score += 40;
             }
 
-            if (numberMatch && dateMatch && amountMatch && sellerMatch && buyerMatch) {
-                console.log(`  -> DUPLICATE FOUND: Document ${data.number} already exists in sheet`);
+            // 2. Date Match (30 pts)
+            if (existingIssueDate === targetDate) {
+                score += 30;
+            }
+
+            // 3. Number Match (Normalized) (20 pts)
+            if (targetNumberNorm && normalizeString(existingNumber) === targetNumberNorm) {
+                score += 20;
+            }
+
+            // 4. Seller NIP Match (Normalized) (20 pts)
+            if (targetSellerNorm && normalizeString(existingSellerTaxId) === targetSellerNorm) {
+                score += 20;
+            }
+
+            // 5. Buyer NIP Match (Normalized) (10 pts)
+            if (targetBuyerNorm && normalizeString(existingBuyerTaxId) === targetBuyerNorm) {
+                score += 10;
+            }
+
+            // Log high scores for debugging
+            if (score >= 60) {
+                console.log(`    Candidate Row Score: ${score}/100. (Num: ${existingNumber}, Date: ${existingIssueDate}, Amt: ${existingAmount})`);
+            }
+
+            // Threshold check
+            if (score >= 80) {
+                console.log(`  -> DUPLICATE FOUND (Score ${score}): Document ${data.number} matches existing record.`);
                 return true;
             }
         }
@@ -62,7 +113,6 @@ async function isDuplicate(sheets, spreadsheetId, data) {
         return false;
     } catch (error) {
         console.error("Error checking for duplicates:", error.message);
-        // If we can't check, assume it's not a duplicate to avoid blocking new invoices
         return false;
     }
 }
