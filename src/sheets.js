@@ -152,12 +152,14 @@ async function logToSheet(data, emailInfo) {
         data.buyer_tax_id,        // Buyer NIP/Tax ID
         emailInfo.messageId,      // Gmail Message ID
         status,                   // Status (NEW or DUPLICATE)
+        data.items || '',         // Items
+        data.justification || ''  // Creative Justification
     ];
 
     try {
         await sheets.spreadsheets.values.append({
             spreadsheetId,
-            range: 'A:M', // Extended to column M to accommodate all fields
+            range: 'A:O', // Extended to column O (15 columns)
             valueInputOption: 'USER_ENTERED',
             requestBody: {
                 values: [row],

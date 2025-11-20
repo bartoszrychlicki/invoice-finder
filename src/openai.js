@@ -29,39 +29,6 @@ async function analyzeAttachment(fileBuffer, mimeType) {
     - A document without clear financial data (amounts, dates, tax IDs).
     
     If it is NOT a fiscal document, return {"is_invoice": false, "data": null} immediately. DO NOT HALLUCINATE DATA.
-    
-    STEP 2: EXTRACTION - BUYER vs SELLER
-    Only if it IS a valid fiscal document, extract the following fields.
-    
-    IMPORTANT: Distinguish between BUYER (nabywca/purchaser) and SELLER (sprzedawca/vendor):
-    - SELLER is the company/person ISSUING the document (who is selling goods/services)
-    - BUYER is the company/person RECEIVING the document (who is purchasing)
-    
-    SPECIAL RULE FOR RECEIPTS (Paragon):
-    - If you see NIP: 9571130261 anywhere on the document, this is the BUYER's NIP (Rychlicki Holding Sp. z o.o.)
-    - The SELLER information should be found elsewhere on the receipt (usually at the top)
-    
-    Extract these fields:
-       - number (document number/invoice number)
-       - issue_date (date of issue, format: YYYY-MM-DD)
-       - total_amount (total amount as number, use dot for decimals)
-       - currency (ISO code, e.g., PLN, USD, EUR)
-       - seller_name (name of the company/person SELLING)
-       - seller_tax_id (NIP/VAT ID of SELLER)
-       - buyer_name (name of the company/person BUYING)
-       - buyer_tax_id (NIP/VAT ID of BUYER - if you see 9571130261, this is the buyer)
-    
-    Return ONLY a valid JSON object with this structure:
-    {
-      "is_invoice": boolean,
-      "data": {
-         "number": string | null,
-         "issue_date": string | null,
-         "total_amount": number | null,
-         "currency": string | null,
-         "seller_name": string | null,
-         "seller_tax_id": string | null,
-         "buyer_name": string | null,
          "buyer_tax_id": string | null
       }
     }
@@ -102,5 +69,55 @@ async function analyzeAttachment(fileBuffer, mimeType) {
     }
 }
 
-module.exports = { analyzeAttachment };
+/**
+ * Generates a creative cost justification for an invoice based on business context.
+ * @param {Object} invoiceData - The extracted invoice data (seller, items, amount).
+ * @param {string} businessContext - Description of the user's business.
+ * @returns {Promise<string>} - The generated justification or "Brak uzasadnienia".
+ */
+async function generateJustification(invoiceData, businessContext) {
+    if (!businessContext) {
+        console.warn("No BUSINESS_CONTEXT provided, skipping justification.");
+        return "Brak konfiguracji kontekstu biznesowego.";
+    }
+
+    const prompt = `
+    I am a business owner operating in the following context:
+    "${businessContext}"
+
+    I have an invoice with the following details:
+    - Seller: ${invoiceData.seller_name}
+    - Items: ${invoiceData.items || 'N/A'}
+    - Amount: ${invoiceData.total_amount} ${invoiceData.currency}
+
+    ROLE: You are a creative and resourceful accountant.
+    TASK: Write a short (1-2 sentences) justification for this cost in Polish. Explain how this purchase potentially supports my business, generates revenue, or is necessary for operations.
+    
+    GUIDELINES:
+    - Be creative but plausible. Find a link between the purchase and my business goals.
+    - If the link is obvious (e.g. hosting for a software company), state it clearly.
+    - If the link is tenuous (e.g. coffee), explain it as "fuel for meetings" or "office supply".
+    - If there is absolutely no way to justify it (e.g. personal vacation), write "Brak uzasadnienia".
+    - Return ONLY the text of the justification. No quotes.
+    `;
+
+    try {
+        const response = await openai.chat.completions.create({
+            model: "gpt-4o",
+            messages: [
+                { role: "system", content: "You are a helpful assistant." },
+                { role: "user", content: prompt }
+            ],
+            max_tokens: 150,
+        });
+
+        const justification = response.choices[0].message.content.trim();
+        return justification;
+    } catch (error) {
+        console.error("Error generating justification:", error);
+        return "Błąd generowania uzasadnienia.";
+    }
+}
+
+module.exports = { analyzeAttachment, generateJustification };
 
