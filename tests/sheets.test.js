@@ -1,5 +1,10 @@
 const { isDuplicate, normalizeString, parseAmount } = require('../src/sheets');
 
+// Mock auth module
+jest.mock('../src/auth', () => ({
+    getOAuth2Client: jest.fn().mockReturnValue({})
+}));
+
 // Mock Google Sheets API
 const mockSheets = {
     spreadsheets: {
@@ -123,5 +128,40 @@ describe('Duplicate Detection (Scoring System)', () => {
         };
         const result = await isDuplicate(mockSheets, 'spreadsheetId', newInvoice);
         expect(result).toBe(false);
+    });
+});
+
+const { logToSheet } = require('../src/sheets');
+
+describe('Logging to Sheets', () => {
+    beforeEach(() => {
+        mockSheets.spreadsheets.values.append = jest.fn().mockResolvedValue({});
+        mockSheets.spreadsheets.values.get = jest.fn().mockResolvedValue({ data: { values: [] } }); // No duplicates
+    });
+
+    test('should normalize NIPs (remove dashes/spaces) before saving', async () => {
+        const data = {
+            number: '123',
+            issue_date: '2023-01-01',
+            total_amount: 100,
+            currency: 'PLN',
+            seller_name: 'Seller',
+            seller_tax_id: '123-456-78-90', // With dashes
+            buyer_name: 'Buyer',
+            buyer_tax_id: '987 654 32 10',  // With spaces
+            items: 'Item 1',
+            justification: 'Justification'
+        };
+        const emailInfo = { from: 'test@test.com', subject: 'Test', messageId: 'msg123' };
+
+        await logToSheet(data, emailInfo, mockSheets, 'spreadsheetId');
+
+        expect(mockSheets.spreadsheets.values.append).toHaveBeenCalled();
+        const callArgs = mockSheets.spreadsheets.values.append.mock.calls[0][0];
+        const loggedRow = callArgs.requestBody.values[0];
+
+        // Index 8 is Seller NIP, Index 10 is Buyer NIP
+        expect(loggedRow[8]).toBe('1234567890'); // Normalized
+        expect(loggedRow[10]).toBe('9876543210'); // Normalized
     });
 });

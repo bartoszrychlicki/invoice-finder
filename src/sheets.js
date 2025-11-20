@@ -123,10 +123,10 @@ async function isDuplicate(sheets, spreadsheetId, data) {
  * @param {Object} emailInfo - Metadata about the email.
  * @returns {Promise<Object>} - Returns {isDuplicate: boolean, logged: boolean}
  */
-async function logToSheet(data, emailInfo) {
+async function logToSheet(data, emailInfo, injectedSheets = null, injectedSpreadsheetId = null) {
     const auth = getOAuth2Client();
-    const sheets = google.sheets({ version: 'v4', auth });
-    const spreadsheetId = process.env.SPREADSHEET_ID;
+    const sheets = injectedSheets || google.sheets({ version: 'v4', auth });
+    const spreadsheetId = injectedSpreadsheetId || process.env.SPREADSHEET_ID;
 
     if (!spreadsheetId) {
         console.warn("No SPREADSHEET_ID configured, skipping logging.");
@@ -147,9 +147,9 @@ async function logToSheet(data, emailInfo) {
         data.total_amount,        // Total Amount
         data.currency,            // Currency
         data.seller_name,         // Seller Name
-        data.seller_tax_id,       // Seller NIP/Tax ID
+        data.seller_tax_id ? data.seller_tax_id.replace(/[\s-]/g, '') : '', // Seller NIP/Tax ID (normalized)
         data.buyer_name,          // Buyer Name
-        data.buyer_tax_id,        // Buyer NIP/Tax ID
+        data.buyer_tax_id ? data.buyer_tax_id.replace(/[\s-]/g, '') : '',   // Buyer NIP/Tax ID (normalized)
         emailInfo.messageId,      // Gmail Message ID
         status,                   // Status (NEW or DUPLICATE)
         data.items || '',         // Items
