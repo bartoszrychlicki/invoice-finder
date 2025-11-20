@@ -47,6 +47,11 @@ while IFS='=' read -r key value; do
     if [[ "$key" == "PORT" ]]; then
         continue
     fi
+    
+    # Usuń cudzysłowy z wartości (jeśli istnieją)
+    value="${value%\"}"
+    value="${value#\"}"
+    
     # Dodaj do listy (z przecinkiem jako separatorem)
     if [ -n "$ENV_VARS" ]; then
         ENV_VARS="$ENV_VARS,"
