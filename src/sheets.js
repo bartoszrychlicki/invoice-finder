@@ -121,9 +121,12 @@ async function isDuplicate(sheets, spreadsheetId, data) {
  * Logs invoice data to Google Sheets.
  * @param {Object} data - The extracted invoice data.
  * @param {Object} emailInfo - Metadata about the email.
+ * @param {Object} [injectedSheets] - Optional injected sheets instance.
+ * @param {string} [injectedSpreadsheetId] - Optional injected spreadsheet ID.
+ * @param {string} [driveLink] - Optional Google Drive link.
  * @returns {Promise<Object>} - Returns {isDuplicate: boolean, logged: boolean}
  */
-async function logToSheet(data, emailInfo, injectedSheets = null, injectedSpreadsheetId = null) {
+async function logToSheet(data, emailInfo, injectedSheets = null, injectedSpreadsheetId = null, driveLink = '') {
     const auth = getOAuth2Client();
     const sheets = injectedSheets || google.sheets({ version: 'v4', auth });
     const spreadsheetId = injectedSpreadsheetId || process.env.SPREADSHEET_ID;
@@ -153,13 +156,14 @@ async function logToSheet(data, emailInfo, injectedSheets = null, injectedSpread
         emailInfo.messageId,      // Gmail Message ID
         status,                   // Status (NEW or DUPLICATE)
         data.items || '',         // Items
-        data.justification || ''  // Creative Justification
+        data.justification || '',  // Creative Justification
+        driveLink || ''           // Google Drive Link
     ];
 
     try {
         await sheets.spreadsheets.values.append({
             spreadsheetId,
-            range: 'A:O', // Extended to column O (15 columns)
+            range: 'A:P', // Extended to column P (16 columns)
             valueInputOption: 'USER_ENTERED',
             requestBody: {
                 values: [row],

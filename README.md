@@ -76,6 +76,11 @@ Timestamp, Email From, Email Subject, Document Number, Issue Date, Total Amount,
     curl -X POST http://localhost:8080/scan
     ```
 
+5.  **Test Mode** (Skips email sending):
+    ```bash
+    curl -X POST "http://localhost:8080/scan?test=true"
+    ```
+
 ## Deployment to Cloud Run
 
 1.  **Using Deploy Script**:

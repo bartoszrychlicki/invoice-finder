@@ -3,14 +3,16 @@ const { getOAuth2Client } = require('./auth');
 const { analyzeAttachment, generateJustification } = require('./openai');
 const { logToSheet, isDuplicate } = require('./sheets');
 const { convertPdfToImage } = require('./pdf');
+const { saveInvoiceToDrive } = require('./drive');
 
 const gmail = google.gmail('v1');
 
 /**
  * Scans emails from the current day for attachments, analyzes them,
  * and processes invoices.
+ * @param {boolean} testMode - If true, skips sending emails.
  */
-async function scanEmails() {
+async function scanEmails(testMode = false) {
     const auth = getOAuth2Client();
     const userId = 'me';
 
@@ -118,18 +120,26 @@ async function scanEmails() {
                             const duplicate = await isDuplicate(sheets, spreadsheetId, analysis.data);
 
                             // Only generate justification if NOT a duplicate
+                            let driveLink = '';
                             if (!duplicate) {
                                 console.log(`    -> Generating creative justification...`);
                                 const justification = await generateJustification(analysis.data, process.env.BUSINESS_CONTEXT);
                                 analysis.data.justification = justification;
                                 console.log(`    -> Justification: ${justification}`);
+
+                                // Save to Google Drive
+                                console.log(`    -> Saving to Google Drive...`);
+                                driveLink = await saveInvoiceToDrive(analysis.data, fileBuffer, mimeType);
+                                if (driveLink) {
+                                    console.log(`    -> Saved to Drive: ${driveLink}`);
+                                }
                             } else {
                                 console.log(`    -> Skipping justification generation (duplicate detected)`);
                                 analysis.data.justification = 'N/A (duplikat)';
                             }
 
                             // Log to Sheets (returns duplicate status)
-                            const sheetResult = await logToSheet(analysis.data, { from, subject, messageId: message.id });
+                            const sheetResult = await logToSheet(analysis.data, { from, subject, messageId: message.id }, null, null, driveLink);
 
                             // Check if buyer NIP matches (normalize both for comparison)
                             const expectedBuyerNip = process.env.BUYER_TAX_ID?.replace(/[^0-9]/g, '') || '';
@@ -138,8 +148,12 @@ async function scanEmails() {
 
                             // Only send email if NOT a duplicate AND buyer NIP matches
                             if (!sheetResult.isDuplicate && nipMatches) {
-                                console.log(`    -> Sending email (new invoice with matching buyer NIP)...`);
-                                await sendInvoiceEmail(auth, part.filename, mimeType, fileBuffer, analysis.data);
+                                if (testMode) {
+                                    console.log(`    -> TEST MODE: Skipping email send for ${part.filename}`);
+                                } else {
+                                    console.log(`    -> Sending email (new invoice with matching buyer NIP)...`);
+                                    await sendInvoiceEmail(auth, part.filename, mimeType, fileBuffer, analysis.data);
+                                }
                             } else if (sheetResult.isDuplicate) {
                                 console.log(`    -> Skipping email send (duplicate detected)`);
                             } else if (!nipMatches) {

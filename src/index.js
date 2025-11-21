@@ -12,7 +12,11 @@ app.get('/', (req, res) => {
 app.post('/scan', async (req, res) => {
   try {
     console.log('Starting scan...');
-    const result = await scanEmails();
+    const testMode = req.query.test === 'true';
+    if (testMode) {
+      console.log('⚠️  RUNNING IN TEST MODE: Email sending will be skipped.');
+    }
+    const result = await scanEmails(testMode);
     console.log('Scan complete:', result);
     res.status(200).send({ status: 'success', data: result });
   } catch (error) {
