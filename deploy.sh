@@ -28,35 +28,33 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
-# 2. Przygotowanie zmiennych środowiskowych z .env
-echo "⚙️ Wczytywanie zmiennych z .env..."
+# 2. Przygotowanie zmiennych środowiskowych z .env do formatu YAML
+echo "⚙️ Konwertowanie .env do env.yaml..."
 if [ ! -f .env ]; then
     echo "❌ Brak pliku .env!"
     exit 1
 fi
 
-# Budowanie stringa zmiennych środowiskowych
-ENV_VARS=""
+# Utwórz tymczasowy plik env.yaml
+> env.yaml
+
 while IFS='=' read -r key value; do
     # Pomiń komentarze i puste linie
     if [[ $key =~ ^#.* ]] || [[ -z $key ]]; then
         continue
     fi
     
-    # Pomiń PORT, ponieważ jest zarezerwowany w Cloud Run
+    # Pomiń PORT
     if [[ "$key" == "PORT" ]]; then
         continue
     fi
     
-    # Usuń cudzysłowy z wartości (jeśli istnieją)
+    # Usuń cudzysłowy z wartości
     value="${value%\"}"
     value="${value#\"}"
     
-    # Dodaj do listy (z przecinkiem jako separatorem)
-    if [ -n "$ENV_VARS" ]; then
-        ENV_VARS="$ENV_VARS,"
-    fi
-    ENV_VARS="$ENV_VARS$key=$value"
+    # Zapisz do env.yaml w formacie klucz: "wartość"
+    echo "$key: \"$value\"" >> env.yaml
 done < .env
 
 # 3. Wdrażanie na Cloud Run
@@ -66,7 +64,10 @@ gcloud run deploy $SERVICE_NAME \
   --platform managed \
   --region us-central1 \
   --allow-unauthenticated \
-  --set-env-vars "$ENV_VARS"
+  --env-vars-file env.yaml
+
+# Usuń plik tymczasowy
+rm env.yaml
 
 if [ $? -eq 0 ]; then
     echo "✅ Wdrożenie zakończone sukcesem!"

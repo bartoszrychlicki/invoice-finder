@@ -4,6 +4,7 @@ const { analyzeAttachment, generateJustification } = require('./openai');
 const { logToSheet, isDuplicate } = require('./sheets');
 const { convertPdfToImage } = require('./pdf');
 const { saveInvoiceToDrive } = require('./drive');
+const config = require('./config');
 
 const gmail = google.gmail('v1');
 
@@ -91,7 +92,7 @@ async function scanEmails(testMode = false) {
                         if (mimeType === 'application/pdf') {
                             console.log(`    -> Converting PDF to Image for analysis...`);
                             try {
-                                analysisBuffer = await convertPdfToImage(fileBuffer);
+                                analysisBuffer = await convertPdfToImage(fileBuffer, config.pdf_passwords || []);
                                 analysisMimeType = 'image/png';
                                 console.log(`    -> Conversion successful.`);
                             } catch (convError) {
@@ -115,7 +116,7 @@ async function scanEmails(testMode = false) {
                             // Check for duplicates FIRST (to save OpenAI tokens on justification)
                             const auth = await getOAuth2Client();
                             const sheets = google.sheets({ version: 'v4', auth });
-                            const spreadsheetId = process.env.SPREADSHEET_ID;
+                            const spreadsheetId = config.spreadsheet_id;
 
                             const duplicate = await isDuplicate(sheets, spreadsheetId, analysis.data);
 
@@ -123,7 +124,7 @@ async function scanEmails(testMode = false) {
                             let driveLink = '';
                             if (!duplicate) {
                                 console.log(`    -> Generating creative justification...`);
-                                const justification = await generateJustification(analysis.data, process.env.BUSINESS_CONTEXT);
+                                const justification = await generateJustification(analysis.data, config.business_context);
                                 analysis.data.justification = justification;
                                 console.log(`    -> Justification: ${justification}`);
 
@@ -142,7 +143,7 @@ async function scanEmails(testMode = false) {
                             const sheetResult = await logToSheet(analysis.data, { from, subject, messageId: message.id }, null, null, driveLink);
 
                             // Check if buyer NIP matches (normalize both for comparison)
-                            const expectedBuyerNip = process.env.BUYER_TAX_ID?.replace(/[^0-9]/g, '') || '';
+                            const expectedBuyerNip = config.buyer_tax_id?.replace(/[^0-9]/g, '') || '';
                             const actualBuyerNip = analysis.data.buyer_tax_id?.replace(/[^0-9]/g, '') || '';
                             const nipMatches = expectedBuyerNip && actualBuyerNip === expectedBuyerNip;
 
@@ -181,7 +182,7 @@ async function scanEmails(testMode = false) {
 }
 
 async function sendInvoiceEmail(auth, filename, mimeType, fileBuffer, invoiceData) {
-    const targetEmail = process.env.TARGET_EMAIL;
+    const targetEmail = config.target_email;
     if (!targetEmail) {
         console.warn("No TARGET_EMAIL configured, skipping email send.");
         return;

@@ -8,48 +8,82 @@ const tmp = require('tmp');
  * @param {Buffer} pdfBuffer 
  * @returns {Promise<Buffer>} PNG image buffer
  */
-function convertPdfToImage(pdfBuffer) {
+function convertPdfToImage(pdfBuffer, passwords = []) {
     return new Promise((resolve, reject) => {
         // Create temp file for PDF
-        tmp.file({ postfix: '.pdf' }, (err, pdfPath, fd, cleanupCallback) => {
+        tmp.file({ postfix: '.pdf' }, async (err, pdfPath, fd, cleanupCallback) => {
             if (err) return reject(err);
 
-            // Write buffer to temp PDF file
-            fs.writeFileSync(pdfPath, pdfBuffer);
+            try {
+                // Write buffer to temp PDF file
+                fs.writeFileSync(pdfPath, pdfBuffer);
 
-            // Create temp file for output PNG
-            const pngPath = pdfPath + '.png';
+                // Create temp file for output PNG
+                const pngPath = pdfPath + '.png';
 
-            // Ghostscript command to convert first page to PNG
-            // -sDEVICE=png16m: 24-bit color PNG
-            // -r300: 300 DPI (good quality for OCR/Vision)
-            // -dFirstPage=1 -dLastPage=1: Only convert the first page
-            const cmd = `gs -dQUIET -dSAFER -dBATCH -dNOPAUSE -dNOPROMPT -sDEVICE=png16m -dTextAlphaBits=4 -dGraphicsAlphaBits=4 -r300 -dFirstPage=1 -dLastPage=1 -sOutputFile="${pngPath}" "${pdfPath}"`;
+                // Helper to run Ghostscript
+                const runGhostscript = (password = null) => {
+                    return new Promise((gsResolve, gsReject) => {
+                        let passwordArg = '';
+                        if (password) {
+                            // Escape password for shell safety (basic)
+                            const safePassword = password.replace(/"/g, '\\"');
+                            passwordArg = `-sPDFPassword="${safePassword}"`;
+                        }
 
-            exec(cmd, (error, stdout, stderr) => {
-                if (error) {
-                    cleanupCallback();
-                    return reject(new Error(`Ghostscript error: ${error.message}`));
-                }
+                        const cmd = `gs -dQUIET -dSAFER -dBATCH -dNOPAUSE -dNOPROMPT -sDEVICE=png16m -dTextAlphaBits=4 -dGraphicsAlphaBits=4 -r300 -dFirstPage=1 -dLastPage=1 ${passwordArg} -sOutputFile="${pngPath}" "${pdfPath}"`;
 
+                        exec(cmd, (error, stdout, stderr) => {
+                            if (error) {
+                                return gsReject(new Error(`Ghostscript error: ${error.message}`));
+                            }
+                            if (fs.existsSync(pngPath)) {
+                                gsResolve(true);
+                            } else {
+                                gsReject(new Error('Output PNG file was not created'));
+                            }
+                        });
+                    });
+                };
+
+                // 1. Try without password
                 try {
-                    if (fs.existsSync(pngPath)) {
-                        const pngBuffer = fs.readFileSync(pngPath);
+                    console.log('    -> Trying PDF conversion (no password)...');
+                    await runGhostscript(null);
+                } catch (noPassError) {
+                    console.log('    -> Conversion failed without password. Trying password list...');
 
-                        // Cleanup
-                        fs.unlinkSync(pngPath);
-                        cleanupCallback();
-
-                        resolve(pngBuffer);
-                    } else {
-                        cleanupCallback();
-                        reject(new Error('Output PNG file was not created by Ghostscript'));
+                    let success = false;
+                    for (const password of passwords) {
+                        try {
+                            console.log(`    -> Trying password: ${password.substring(0, 2)}***...`); // Log masked
+                            await runGhostscript(password);
+                            success = true;
+                            console.log('    -> Password accepted!');
+                            break;
+                        } catch (passError) {
+                            // Continue to next password
+                        }
                     }
-                } catch (readError) {
-                    cleanupCallback();
-                    reject(readError);
+
+                    if (!success) {
+                        throw new Error('PDF Conversion failed: Unable to decrypt PDF with provided passwords.');
+                    }
                 }
-            });
+
+                // Read result
+                const pngBuffer = fs.readFileSync(pngPath);
+
+                // Cleanup
+                fs.unlinkSync(pngPath);
+                cleanupCallback();
+
+                resolve(pngBuffer);
+
+            } catch (error) {
+                cleanupCallback();
+                reject(error);
+            }
         });
     });
 }

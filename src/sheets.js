@@ -1,5 +1,6 @@
 const { google } = require('googleapis');
 const { getOAuth2Client } = require('./auth');
+const config = require('./config');
 
 /**
  * Checks if an invoice already exists in the spreadsheet.
@@ -129,7 +130,7 @@ async function isDuplicate(sheets, spreadsheetId, data) {
 async function logToSheet(data, emailInfo, injectedSheets = null, injectedSpreadsheetId = null, driveLink = '') {
     const auth = getOAuth2Client();
     const sheets = injectedSheets || google.sheets({ version: 'v4', auth });
-    const spreadsheetId = injectedSpreadsheetId || process.env.SPREADSHEET_ID;
+    const spreadsheetId = injectedSpreadsheetId || config.spreadsheet_id;
 
     if (!spreadsheetId) {
         console.warn("No SPREADSHEET_ID configured, skipping logging.");
