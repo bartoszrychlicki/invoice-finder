@@ -2,7 +2,7 @@ const { google } = require('googleapis');
 const { getOAuth2Client } = require('./auth');
 const { analyzeAttachment, generateJustification } = require('./openai');
 const { logToSheet, isDuplicate } = require('./sheets');
-const { convertPdfToImage } = require('./pdf');
+const { convertPdfToImage, decryptPdf } = require('./pdf');
 const { saveInvoiceToDrive } = require('./drive');
 const config = require('./config');
 
@@ -92,9 +92,20 @@ async function scanEmails(testMode = false) {
                         if (mimeType === 'application/pdf') {
                             console.log(`    -> Converting PDF to Image for analysis...`);
                             try {
-                                analysisBuffer = await convertPdfToImage(fileBuffer, config.pdf_passwords || []);
+                                const conversionResult = await convertPdfToImage(fileBuffer, config.pdf_passwords || []);
+                                analysisBuffer = conversionResult.imageBuffer;
                                 analysisMimeType = 'image/png';
                                 console.log(`    -> Conversion successful.`);
+
+                                if (conversionResult.usedPassword) {
+                                    console.log(`    -> PDF was password protected. Decrypting for storage...`);
+                                    try {
+                                        fileBuffer = await decryptPdf(fileBuffer, conversionResult.usedPassword);
+                                        console.log(`    -> Decryption successful. File will be saved without password.`);
+                                    } catch (decryptError) {
+                                        console.error(`    -> Decryption failed: ${decryptError.message}. Saving original file.`);
+                                    }
+                                }
                             } catch (convError) {
                                 console.error(`    -> PDF Conversion failed: ${convError.message}`);
                                 continue; // Skip this attachment if conversion fails

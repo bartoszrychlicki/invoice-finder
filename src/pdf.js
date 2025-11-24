@@ -6,7 +6,8 @@ const tmp = require('tmp');
 /**
  * Converts the first page of a PDF buffer to a PNG buffer using Ghostscript.
  * @param {Buffer} pdfBuffer 
- * @returns {Promise<Buffer>} PNG image buffer
+ * @param {string[]} passwords - List of passwords to try
+ * @returns {Promise<{imageBuffer: Buffer, usedPassword: string|null}>} PNG image buffer and the password used (if any)
  */
 function convertPdfToImage(pdfBuffer, passwords = []) {
     return new Promise((resolve, reject) => {
@@ -46,6 +47,8 @@ function convertPdfToImage(pdfBuffer, passwords = []) {
                     });
                 };
 
+                let usedPassword = null;
+
                 // 1. Try without password
                 try {
                     console.log('    -> Trying PDF conversion (no password)...');
@@ -59,6 +62,7 @@ function convertPdfToImage(pdfBuffer, passwords = []) {
                             console.log(`    -> Trying password: ${password.substring(0, 2)}***...`); // Log masked
                             await runGhostscript(password);
                             success = true;
+                            usedPassword = password;
                             console.log('    -> Password accepted!');
                             break;
                         } catch (passError) {
@@ -78,7 +82,7 @@ function convertPdfToImage(pdfBuffer, passwords = []) {
                 fs.unlinkSync(pngPath);
                 cleanupCallback();
 
-                resolve(pngBuffer);
+                resolve({ imageBuffer: pngBuffer, usedPassword });
 
             } catch (error) {
                 cleanupCallback();
@@ -88,4 +92,49 @@ function convertPdfToImage(pdfBuffer, passwords = []) {
     });
 }
 
-module.exports = { convertPdfToImage };
+/**
+ * Decrypts a PDF file using the provided password.
+ * @param {Buffer} pdfBuffer 
+ * @param {string} password 
+ * @returns {Promise<Buffer>} Decrypted PDF buffer
+ */
+function decryptPdf(pdfBuffer, password) {
+    return new Promise((resolve, reject) => {
+        if (!password) return resolve(pdfBuffer);
+
+        tmp.file({ postfix: '.pdf' }, (err, inputPath, fd, cleanupCallback) => {
+            if (err) return reject(err);
+
+            try {
+                fs.writeFileSync(inputPath, pdfBuffer);
+                const outputPath = inputPath + '_decrypted.pdf';
+                const safePassword = password.replace(/"/g, '\\"');
+
+                // Ghostscript command to decrypt (rewrite) PDF
+                const cmd = `gs -q -dNOPAUSE -dBATCH -sDEVICE=pdfwrite -sPDFPassword="${safePassword}" -sOutputFile="${outputPath}" "${inputPath}"`;
+
+                exec(cmd, (error, stdout, stderr) => {
+                    if (error) {
+                        cleanupCallback();
+                        return reject(new Error(`Ghostscript decryption error: ${error.message}`));
+                    }
+
+                    if (fs.existsSync(outputPath)) {
+                        const decryptedBuffer = fs.readFileSync(outputPath);
+                        fs.unlinkSync(outputPath);
+                        cleanupCallback();
+                        resolve(decryptedBuffer);
+                    } else {
+                        cleanupCallback();
+                        reject(new Error('Decrypted PDF file was not created'));
+                    }
+                });
+            } catch (error) {
+                cleanupCallback();
+                reject(error);
+            }
+        });
+    });
+}
+
+module.exports = { convertPdfToImage, decryptPdf };
