@@ -78,31 +78,44 @@ async function analyzeAttachment(imageBuffer, mimeType) {
  * @param {string} businessContext - Description of the user's business.
  * @returns {Promise<string>} - The generated justification or "Brak uzasadnienia".
  */
-async function generateJustification(invoiceData, businessContext) {
+async function generateJustification(invoiceData, businessContext, promptInstructions) {
     if (!businessContext) {
         console.warn("No BUSINESS_CONTEXT provided, skipping justification.");
         return "Brak konfiguracji kontekstu biznesowego.";
     }
 
     const prompt = `
-    I am a business owner operating in the following context:
-    "${businessContext}"
+# ROLA:
+Jesteś kreatywnym doradcą podatkowym i ekspertem ds. optymalizacji kosztów w firmie o multidyscyplinarnym profilu działalności. Twoim zadaniem jest przygotowanie profesjonalnego uzasadnienia wydatku dla księgowego.
 
-    I have an invoice with the following details:
-    - Seller: ${invoiceData.seller_name}
-    - Items: ${invoiceData.items || 'N/A'}
-    - Amount: ${invoiceData.total_amount} ${invoiceData.currency}
+# CEL:
+Stworzenie 2-3 zdaniowego uzasadnienia, które wykazuje logiczny związek przyczynowo-skutkowy pomiędzy poniesionym kosztem a uzyskaniem przychodu, zachowaniem lub zabezpieczeniem źródła przychodów. Uzasadnienie musi być defensywne podatkowo, ale kreatywne w łączeniu faktów.
 
-    ROLE: You are a creative and resourceful accountant.
-    TASK: Write a short (1-2 sentences) justification for this cost in Polish. Explain how this purchase potentially supports my business, generates revenue, or is necessary for operations.
-    
-    GUIDELINES:
-    - Be creative but plausible. Find a link between the purchase and my business goals.
-    - If the link is obvious (e.g. hosting for a software company), state it clearly.
-    - If the link is tenuous (e.g. coffee), explain it as "fuel for meetings" or "office supply".
-    - If there is absolutely no way to justify it (e.g. personal vacation), write "Brak uzasadnienia".
-    - Return ONLY the text of the justification. No quotes.
+# KONTEKST BIZNESOWY (MOJE FILARY):
+${businessContext}
+
+# TWOJE ZADANIE:
+Na podstawie danych z faktury oraz moich "Zasad Specjalnych", napisz uzasadnienie.
+1. **Znajdź powiązanie:** Jeśli to elektronika -> powołaj się na programowanie/IT. Jeśli to usługa/spotkanie -> powołaj się na konsulting/sprzedaż. Jeśli to hotel/wyjazd -> powołaj się na spotkanie z inwestorem lub klientem w terenie.
+2. **Wskaż cel:** Wyjaśnij, jak ten koszt przekłada się na potencjalny przychód.
+3. **Styl:** Profesjonalny, biznesowy, konkretny.
+
+# DANE FAKTURY:
+* **Przedmiot zakupu:** ${invoiceData.items || 'N/A'}
+* **Sprzedawca:** ${invoiceData.seller_name}
+* **Kwota:** ${invoiceData.total_amount} ${invoiceData.currency}
+
+# ZESTAW REGUŁ (ZASTOSUJ BEZWZGLĘDNIE):
+${promptInstructions || 'Brak dodatkowych reguł.'}
+
+# OCZEKIWANY OUTPUT:
+Tylko gotowy tekst uzasadnienia.
+**Język: Polski.**
     `;
+
+    console.log("--- FULL JUSTIFICATION PROMPT ---");
+    console.log(prompt);
+    console.log("---------------------------------");
 
     try {
         const response = await openai.chat.completions.create({

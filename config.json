@@ -1,10 +1,11 @@
 {
     "buyer_tax_id": "9571130261",
-    "business_context": "Firma holdingowa zajmująca się konsultingiem IT, marketingu i sprzedaży, mentoringiem biznesowym, coachingiem oraz rozwojem osobistym. Prowadzę również działalność jako trener sportowy (kolarstwo), organizuję eventy, szkolenia i wyjazdy biznesowe. Podnajmuję obiekty turystyczne. Produkuję materiały reklamowe (np. odzież). Koszty gastronomiczne i wyjazdowe są związane z reprezentacją klienta lub wyjazdami trenerskimi.",
+    "business_context": "Prowadzę szeroką działalność gospodarczą. Aby uzasadnić koszt, dopasuj przedmiot zakupu do **jednego, najlepiej pasującego** filaru z poniższej listy:\n\n1. **Technologia i IT:** Programowanie, tworzenie oprogramowania, architektura systemów, usługi technologiczne.\n2. **Konsulting i Zarządzanie:** Doradztwo biznesowe, optymalizacja procesów, usługi holdingowe, mentoring biznesowy, coaching.\n3. **Wzrost i Wizerunek:** Marketing, reklama, wsparcie sprzedaży, PR, produkcja materiałów reklamowych (np. odzież).\n4. **Kapitał:** Usługi inwestycyjne, zarządzanie aktywami, podnajem obiektów turystycznych.\n5. **Sport i Eventy:** Trener kolarstwa, organizacja eventów, szkoleń i wyjazdów biznesowych.\n6. **Inne:** Działalność operacyjna biura i administracja.",
     "spreadsheet_id": "1uhyd9OBXjWRL2zFgbrBoMI9llnne1ncmXAxIsIx4De4",
     "target_email": "bartosz.rychlicki_1@infaktpliki.pl",
     "pdf_passwords": [
         "387996318",
         "85102602798"
-    ]
+    ],
+    "justification_rules": "- Elektronikę zawsze uzasadniamy jako sprzęt do developmentu i testowania oprogramowania.\n- Wyjścia do restauracji jako spotkania negocjacyjne z potencjalnymi kontrahentami (cel: sprzedaż/doradztwo).\n- Wyjazdy jako nadzór nad inwestycjami lub spotkania u klienta."
 }

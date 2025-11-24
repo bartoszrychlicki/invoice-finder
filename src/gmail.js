@@ -135,7 +135,7 @@ async function scanEmails(testMode = false) {
                             let driveLink = '';
                             if (!duplicate) {
                                 console.log(`    -> Generating creative justification...`);
-                                const justification = await generateJustification(analysis.data, config.business_context);
+                                const justification = await generateJustification(analysis.data, config.business_context, config.justification_rules);
                                 analysis.data.justification = justification;
                                 console.log(`    -> Justification: ${justification}`);
 
