@@ -11,6 +11,7 @@ This application scans your Gmail for invoices, processes them with OpenAI, and 
 5.  **Buyer NIP Filtering**: Only forwards invoices where the Buyer NIP matches your NIP (`BUYER_TAX_ID`).
 6.  **Google Sheets Logging**: Logs all processed documents to a Google Sheet.
 7.  **Email Forwarding**: Forwards valid, non-duplicate invoices to a target email address.
+8.  **Bank Reconciliation**: Reconciles bank transactions (CSV) with the invoice registry to find missing invoices.
 
 ## Prerequisites
 
@@ -80,6 +81,29 @@ Timestamp, Email From, Email Subject, Document Number, Issue Date, Total Amount,
     ```bash
     curl -X POST "http://localhost:8080/scan?test=true"
     ```
+
+## Bank Reconciliation
+
+This feature allows you to reconcile your bank transactions (CSV export) with the invoice registry to identify missing invoices.
+
+### Usage
+
+1.  Export your bank history to a CSV file.
+2.  Run the reconciliation script:
+    ```bash
+    node run-reconciliation.js --file path/to/bank_statement.csv
+    ```
+
+### How it Works
+
+1.  **Parses** the bank statement CSV.
+2.  **Fetches** all invoices from your Google Sheet registry.
+3.  **Matches** transactions based on:
+    *   **Amount**: Must match within 0.05 tolerance.
+    *   **Date**: Must be within +/- 7 days.
+4.  **Generates Report**: Creates a new Google Sheet with two tabs:
+    *   **Missing Invoices**: Transactions found in the bank statement but not in the registry.
+    *   **Matched Transactions**: Successfully paired transactions.
 
 ## Deployment to Cloud Run
 

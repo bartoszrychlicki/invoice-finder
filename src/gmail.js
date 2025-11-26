@@ -22,8 +22,9 @@ async function scanEmails(testMode = false) {
     oneDayAgo.setDate(oneDayAgo.getDate() - 1);
     const after = Math.floor(oneDayAgo.getTime() / 1000);
 
-    // Search for emails with attachments AND invoice-related keywords
-    const keywords = '(faktura OR faktury OR invoice OR rachunek OR paragon OR inv)';
+    // Search for emails with attachments (broader search - we'll filter by filename too)
+    // Expanded keywords to catch more invoice-related emails
+    const keywords = '(faktura OR faktury OR invoice OR rachunek OR paragon OR inv OR receipt OR bill OR "dokument sprzedaży" OR "dokument zakupu" OR "potwierdzenie zakupu")';
     const query = `has:attachment after:${after} ${keywords}`;
     console.log(`Searching for emails with query: ${query}`);
 
@@ -54,15 +55,34 @@ async function scanEmails(testMode = false) {
 
             console.log(`Processing message: ${subject} (${message.id})`);
 
-            // Double-check: verify email contains invoice keywords
-            // (Gmail query should already filter, but this is extra safety)
-            const invoiceKeywords = ['faktura', 'faktury', 'invoice', 'rachunek', 'paragon', 'inv'];
+            // Check if email or attachments contain invoice keywords
+            const invoiceKeywords = ['faktura', 'faktury', 'invoice', 'rachunek', 'paragon', 'inv', 'receipt', 'bill'];
             const emailText = `${subject} ${from} ${to}`.toLowerCase();
-            const hasInvoiceKeyword = invoiceKeywords.some(keyword => emailText.includes(keyword));
+            const hasInvoiceKeywordInEmail = invoiceKeywords.some(keyword => emailText.includes(keyword));
 
-            if (!hasInvoiceKeyword) {
-                console.log(`  -> Skipping: No invoice keywords found in subject/from/to`);
+            // Check attachment filenames for invoice keywords
+            const attachmentFilenames = parts
+                .filter(p => p.filename && p.body && p.body.attachmentId)
+                .map(p => p.filename.toLowerCase())
+                .join(' ');
+            const hasInvoiceKeywordInFilename = invoiceKeywords.some(keyword => attachmentFilenames.includes(keyword));
+
+            // Check Gmail labels for invoice keywords
+            const labels = msgDetails.data.labelIds || [];
+            const labelNames = labels.join(' ').toLowerCase();
+            const hasInvoiceKeywordInLabels = invoiceKeywords.some(keyword => labelNames.includes(keyword));
+
+            // Process if keywords found in email OR in attachment filenames OR in labels
+            if (!hasInvoiceKeywordInEmail && !hasInvoiceKeywordInFilename && !hasInvoiceKeywordInLabels) {
+                console.log(`  -> Skipping: No invoice keywords found in subject/from/to, attachment filenames, or labels`);
                 continue;
+            }
+
+            if (hasInvoiceKeywordInFilename && !hasInvoiceKeywordInEmail) {
+                console.log(`  -> Invoice keyword found in attachment filename (not in subject/from/to)`);
+            }
+            if (hasInvoiceKeywordInLabels && !hasInvoiceKeywordInEmail && !hasInvoiceKeywordInFilename) {
+                console.log(`  -> Invoice keyword found in Gmail labels`);
             }
 
             for (const part of parts) {

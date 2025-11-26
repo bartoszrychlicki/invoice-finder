@@ -44,18 +44,46 @@ function parseAmount(val) {
  * @param {Object} data - The invoice data to check.
  * @returns {Promise<boolean>} - True if duplicate found, false otherwise.
  */
-async function isDuplicate(sheets, spreadsheetId, data) {
+/**
+ * Fetches all invoices from the spreadsheet.
+ * @param {Object} sheets - Google Sheets API instance.
+ * @param {string} spreadsheetId - The spreadsheet ID.
+ * @returns {Promise<Array<Array<string>>>} - Array of rows.
+ */
+async function getAllInvoices(sheets, spreadsheetId) {
     try {
-        // Fetch all existing rows from the sheet
         const response = await sheets.spreadsheets.values.get({
             spreadsheetId,
             range: 'A:M', // All columns
         });
-
         const rows = response.data.values || [];
-
         // Skip header row if exists
-        const dataRows = rows.length > 0 && rows[0][0] === 'Timestamp' ? rows.slice(1) : rows;
+        return rows.length > 0 && rows[0][0] === 'Timestamp' ? rows.slice(1) : rows;
+    } catch (error) {
+        console.error("Error fetching invoices:", error.message);
+        return [];
+    }
+}
+
+/**
+ * Checks if an invoice already exists in the spreadsheet using a Scoring System.
+ * Threshold for duplicate is 80 points.
+ * 
+ * Scoring:
+ * - Amount Match: 40 pts
+ * - Date Match: 30 pts
+ * - Number Match (Normalized): 20 pts
+ * - Seller NIP Match (Normalized): 20 pts
+ * - Buyer NIP Match (Normalized): 10 pts
+ * 
+ * @param {Object} sheets - Google Sheets API instance.
+ * @param {string} spreadsheetId - The spreadsheet ID.
+ * @param {Object} data - The invoice data to check.
+ * @returns {Promise<boolean>} - True if duplicate found, false otherwise.
+ */
+async function isDuplicate(sheets, spreadsheetId, data) {
+    try {
+        const dataRows = await getAllInvoices(sheets, spreadsheetId);
 
         console.log(`  -> Checking for duplicates (Scoring System). Found ${dataRows.length} existing rows.`);
 
@@ -182,4 +210,4 @@ async function logToSheet(data, emailInfo, injectedSheets = null, injectedSpread
     }
 }
 
-module.exports = { logToSheet, isDuplicate, normalizeString, parseAmount };
+module.exports = { logToSheet, isDuplicate, normalizeString, parseAmount, getAllInvoices };
