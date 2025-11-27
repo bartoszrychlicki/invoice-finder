@@ -60,15 +60,21 @@ async function scanEmails(testMode = false, hours = 24) {
 
                 console.log(`Processing message: ${subject} (${message.id})`);
 
-                // Skip emails sent to TARGET_EMAIL (forwarded invoices from this system)
+                // Skip emails sent ONLY to TARGET_EMAIL (forwarded invoices from this system)
+                // Don't skip if there are multiple recipients (e.g., "faktury, bartosz.rychlicki_1")
                 const targetEmail = config.target_email;
-                if (targetEmail && to.toLowerCase().includes(targetEmail.toLowerCase())) {
-                    console.log(`  -> Skipping: Email sent to TARGET_EMAIL (${targetEmail}) - avoiding re-scan of forwarded invoice`);
-                    continue;
+                if (targetEmail) {
+                    // Extract all email addresses from the To field
+                    const toAddresses = to.toLowerCase().split(',').map(addr => addr.trim());
+                    // Check if TARGET_EMAIL is the ONLY recipient
+                    if (toAddresses.length === 1 && toAddresses[0].includes(targetEmail.toLowerCase())) {
+                        console.log(`  -> Skipping: Email sent ONLY to TARGET_EMAIL (${targetEmail}) - avoiding re-scan of forwarded invoice`);
+                        continue;
+                    }
                 }
 
                 // Check if email or attachments contain invoice keywords
-                const invoiceKeywords = ['faktura', 'faktury', 'invoice', 'rachunek', 'paragon', 'inv', 'receipt', 'bill'];
+                const invoiceKeywords = ['faktura', 'faktury', 'invoice', 'rachunek', 'paragon', 'inv', 'receipt', 'bill', 'dokument sprzedaży', 'dokument sprzedazy'];
                 const emailText = `${subject} ${from} ${to}`.toLowerCase();
                 const hasInvoiceKeywordInEmail = invoiceKeywords.some(keyword => emailText.includes(keyword));
 
