@@ -59,6 +59,13 @@ async function scanEmails(testMode = false) {
 
                 console.log(`Processing message: ${subject} (${message.id})`);
 
+                // Skip emails sent to TARGET_EMAIL (forwarded invoices from this system)
+                const targetEmail = config.target_email;
+                if (targetEmail && to.toLowerCase().includes(targetEmail.toLowerCase())) {
+                    console.log(`  -> Skipping: Email sent to TARGET_EMAIL (${targetEmail}) - avoiding re-scan of forwarded invoice`);
+                    continue;
+                }
+
                 // Check if email or attachments contain invoice keywords
                 const invoiceKeywords = ['faktura', 'faktury', 'invoice', 'rachunek', 'paragon', 'inv', 'receipt', 'bill'];
                 const emailText = `${subject} ${from} ${to}`.toLowerCase();
