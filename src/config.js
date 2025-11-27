@@ -16,4 +16,7 @@ try {
     console.error(`Error loading config from ${configPath}:`, error);
 }
 
+// Allow environment variables to override config file
+config.admin_email = process.env.ADMIN_EMAIL || config.admin_email;
+
 module.exports = config;

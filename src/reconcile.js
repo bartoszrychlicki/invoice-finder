@@ -1,6 +1,7 @@
 const { google } = require('googleapis');
 const { getOAuth2Client } = require('./auth');
 const { getAllInvoices, parseAmount, normalizeString } = require('./sheets');
+const { findMissingInvoice } = require('./gmail_search');
 const config = require('../config.json');
 
 /**
@@ -102,6 +103,19 @@ async function reconcileTransactions(transactions, sheets, spreadsheetId) {
         }
     }
 
+    // Smart Gmail Search for Missing Invoices
+    console.log(`  -> Starting Smart Gmail Search for ${missing.length} missing items...`);
+    const auth = getOAuth2Client();
+
+    for (const tx of missing) {
+        const searchResult = await findMissingInvoice(tx, auth);
+        tx.gmailStatus = searchResult.found ? 'FOUND' : `NOT FOUND (${searchResult.reason || 'unknown'})`;
+        if (searchResult.found) {
+            tx.gmailQuery = searchResult.query;
+            tx.gmailMessageId = searchResult.emailId;
+        }
+    }
+
     return { matched, missing };
 }
 
@@ -113,7 +127,10 @@ async function reconcileTransactions(transactions, sheets, spreadsheetId) {
  * @returns {Promise<string>} - URL of the created spreadsheet.
  */
 async function generateReport(reconciliationResult, sheets) {
-    const title = `Reconciliation Report - ${new Date().toISOString().split('T')[0]}`;
+    const now = new Date();
+    const dateStr = now.toISOString().split('T')[0];
+    const timeStr = now.toTimeString().split(' ')[0].replace(/:/g, '');
+    const title = `Reconciliation Report - ${dateStr} ${timeStr}`;
 
     // Create new spreadsheet
     const createRes = await sheets.spreadsheets.create({
@@ -131,13 +148,15 @@ async function generateReport(reconciliationResult, sheets) {
 
     // Prepare data for Missing Invoices
     const missingRows = [
-        ['Date', 'Amount', 'Currency', 'Counterparty', 'Description', 'Raw Transaction'],
+        ['Date', 'Amount', 'Currency', 'Counterparty', 'Description', 'Gmail Status', 'Gmail Query', 'Raw Transaction'],
         ...reconciliationResult.missing.map(tx => [
             tx.date,
             tx.amount,
             tx.currency,
             tx.counterparty,
             tx.description,
+            tx.gmailStatus || 'PENDING',
+            tx.gmailQuery || '',
             tx.raw
         ])
     ];

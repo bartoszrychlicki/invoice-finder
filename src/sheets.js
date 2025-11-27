@@ -122,9 +122,11 @@ async function isDuplicate(sheets, spreadsheetId, data) {
                 score += 20;
             }
 
-            // 5. Buyer NIP Match (Normalized) (10 pts)
+            // 5. Buyer NIP Match (Normalized) (0 pts)
+            // Reduced to 0 because it's almost always a match for the user's company, 
+            // causing false positives when Amount (40) + Date (30) match (Total 80).
             if (targetBuyerNorm && normalizeString(existingBuyerTaxId) === targetBuyerNorm) {
-                score += 10;
+                score += 0;
             }
 
             // Log high scores for debugging
@@ -189,24 +191,31 @@ async function logToSheet(data, emailInfo, injectedSheets = null, injectedSpread
         driveLink || ''           // Google Drive Link
     ];
 
-    try {
-        await sheets.spreadsheets.values.append({
-            spreadsheetId,
-            range: 'A:P', // Extended to column P (16 columns)
-            valueInputOption: 'USER_ENTERED',
-            requestBody: {
-                values: [row],
-            },
-        });
-        console.log(`Logged to Google Sheet with status: ${status}`);
-        return { isDuplicate: duplicate, logged: true };
-    } catch (error) {
-        console.error("Error logging to Google Sheet:");
-        console.error("  Error message:", error.message);
-        if (error.response?.data) {
-            console.error("  Response data:", JSON.stringify(error.response.data, null, 2));
+    const maxRetries = 3;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            await sheets.spreadsheets.values.append({
+                spreadsheetId,
+                range: 'A:P', // Extended to column P (16 columns)
+                valueInputOption: 'USER_ENTERED',
+                requestBody: {
+                    values: [row],
+                },
+            });
+            console.log(`Logged to Google Sheet with status: ${status}`);
+            return { isDuplicate: duplicate, logged: true };
+        } catch (error) {
+            console.error(`Error logging to Google Sheet (Attempt ${attempt}/${maxRetries}):`);
+            console.error("  Error message:", error.message);
+            if (error.response?.data) {
+                console.error("  Response data:", JSON.stringify(error.response.data, null, 2));
+            }
+            if (attempt === maxRetries) {
+                return { isDuplicate: duplicate, logged: false };
+            }
+            // Wait 1 second before retry
+            await new Promise(resolve => setTimeout(resolve, 1000));
         }
-        return { isDuplicate: duplicate, logged: false };
     }
 }
 
