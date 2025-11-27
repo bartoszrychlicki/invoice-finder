@@ -136,6 +136,94 @@ This feature allows you to reconcile your bank transactions (CSV export) with th
     ```
     *Replace `SERVICE_URL` with the URL provided by Cloud Run.*
 
+## Manual Workflow Triggering
+
+You can manually trigger the invoice scanning workflow at any time using either the command line or Google Cloud Console.
+
+### Using Command Line (curl)
+
+1. **Basic scan (last 24 hours)**:
+   ```bash
+   curl -X POST "https://gmail-invoice-scanner-had6oiddya-uc.a.run.app/scan"
+   ```
+
+2. **Custom time range** (e.g., last 48 hours):
+   ```bash
+   curl -X POST "https://gmail-invoice-scanner-had6oiddya-uc.a.run.app/scan?hours=48"
+   ```
+
+3. **Test mode** (processes but doesn't send emails):
+   ```bash
+   curl -X POST "https://gmail-invoice-scanner-had6oiddya-uc.a.run.app/scan?test=true"
+   ```
+
+4. **Combined** (custom time range + test mode):
+   ```bash
+   curl -X POST "https://gmail-invoice-scanner-had6oiddya-uc.a.run.app/scan?hours=48&test=true"
+   ```
+
+**Note**: Replace the URL with your actual Cloud Run service URL (you can find it in the deployment output or Cloud Console).
+
+### Using Google Cloud Console
+
+1. **Navigate to Cloud Run**:
+   - Go to [Google Cloud Console](https://console.cloud.google.com/)
+   - Select your project
+   - Navigate to **Cloud Run** from the left menu
+   - Click on the `gmail-invoice-scanner` service
+
+2. **Open Testing Tab**:
+   - Click on the **"TESTING"** tab at the top
+   - Or use the **"Test"** button in the service details
+
+3. **Configure Request**:
+   - **Method**: Select `POST`
+   - **Path**: Enter `/scan`
+   - **Query parameters** (optional):
+     - Add `hours` with value like `48` for custom time range
+     - Add `test` with value `true` for test mode
+   - Click **"Test"**
+
+4. **View Results**:
+   - The response will show the processing results
+   - Check **"LOGS"** tab for detailed execution logs
+
+### Using gcloud CLI
+
+1. **Get your service URL**:
+   ```bash
+   gcloud run services describe gmail-invoice-scanner \
+     --region us-central1 \
+     --format 'value(status.url)'
+   ```
+
+2. **Trigger the workflow**:
+   ```bash
+   SERVICE_URL=$(gcloud run services describe gmail-invoice-scanner --region us-central1 --format 'value(status.url)')
+   curl -X POST "${SERVICE_URL}/scan?hours=24"
+   ```
+
+3. **View logs in real-time**:
+   ```bash
+   gcloud run services logs read gmail-invoice-scanner \
+     --region us-central1 \
+     --limit 200
+   ```
+
+### Query Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `hours` | integer | 24 | Number of hours to look back for emails |
+| `test` | boolean | false | If `true`, skips sending forwarding emails |
+
+### Examples
+
+- **Scan last week**: `?hours=168`
+- **Scan last month**: `?hours=720`
+- **Test last 3 days**: `?hours=72&test=true`
+
+
 ## Monitoring
 
 *   Check Cloud Run logs for execution details.
