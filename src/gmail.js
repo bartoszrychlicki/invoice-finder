@@ -14,6 +14,7 @@ const gmail = google.gmail('v1');
  * @param {boolean} testMode - If true, skips sending emails.
  */
 async function scanEmails(testMode = false) {
+    const startTime = new Date();
     const auth = getOAuth2Client();
     const userId = 'me';
 
@@ -247,7 +248,7 @@ async function scanEmails(testMode = false) {
 
         if (errorLogs.length > 0) {
             console.log(`Errors encountered during scan. Sending error report...`);
-            await sendErrorEmail(auth, errorLogs);
+            await sendErrorEmail(auth, errorLogs, startTime);
         }
 
         return results;
@@ -255,7 +256,7 @@ async function scanEmails(testMode = false) {
         console.error('Fatal error scanning emails:', error);
         errorLogs.push(`Fatal error during scan: ${error.message}`);
         try {
-            await sendErrorEmail(auth, errorLogs);
+            await sendErrorEmail(auth, errorLogs, startTime);
         } catch (sendErr) {
             console.error("Failed to send fatal error email:", sendErr);
         }
@@ -325,17 +326,42 @@ async function sendInvoiceEmail(auth, filename, mimeType, fileBuffer, invoiceDat
     }
 }
 
-async function sendErrorEmail(auth, errorLogs) {
+async function sendErrorEmail(auth, errorLogs, startTime) {
     const adminEmail = config.admin_email;
     if (!adminEmail) {
         console.warn("No ADMIN_EMAIL configured, skipping error email.");
         return;
     }
 
-    const subject = `⚠️ Invoice Scanner Errors Report - ${new Date().toLocaleDateString()}`;
-    const body = `The Invoice Scanner encountered the following errors during execution:\n\n` +
-        errorLogs.join('\n\n') +
-        `\n\nPlease check the logs for more details.`;
+    const endTime = new Date();
+    const duration = ((endTime - startTime) / 1000).toFixed(2);
+
+    // Use plain text subject without emoji to avoid encoding issues
+    const subject = `Invoice Scanner Error Report - ${endTime.toISOString().split('T')[0]}`;
+
+    const body = [
+        `=== INVOICE SCANNER ERROR REPORT ===`,
+        ``,
+        `Run Started: ${startTime.toISOString()}`,
+        `Run Ended: ${endTime.toISOString()}`,
+        `Duration: ${duration} seconds`,
+        ``,
+        `=== ERRORS ENCOUNTERED (${errorLogs.length}) ===`,
+        ``,
+        ...errorLogs.map((log, index) => `${index + 1}. ${log}`),
+        ``,
+        `=== DEBUGGING INSTRUCTIONS ===`,
+        ``,
+        `To debug these errors:`,
+        `1. Check Cloud Run logs: gcloud run services logs read gmail-invoice-scanner --region us-central1 --limit 200`,
+        `2. Review the error messages above for specific failure points`,
+        `3. Common issues:`,
+        `   - PDF conversion failures: Check if PDF is password-protected or corrupted`,
+        `   - OpenAI API errors: Verify API key and rate limits`,
+        `   - Google Sheets/Drive errors: Check OAuth token validity`,
+        ``,
+        `=== END OF REPORT ===`
+    ].join('\n');
 
     const rawMessage = [
         `From: me`,
