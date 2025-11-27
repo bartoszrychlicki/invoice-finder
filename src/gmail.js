@@ -12,16 +12,17 @@ const gmail = google.gmail('v1');
  * Scans emails from the current day for attachments, analyzes them,
  * and processes invoices.
  * @param {boolean} testMode - If true, skips sending emails.
+ * @param {number} hours - Number of hours to look back (default: 24).
  */
-async function scanEmails(testMode = false) {
+async function scanEmails(testMode = false, hours = 24) {
     const startTime = new Date();
     const auth = getOAuth2Client();
     const userId = 'me';
 
-    // Get timestamp for 24 hours ago to ensure full daily coverage
-    const oneDayAgo = new Date();
-    oneDayAgo.setDate(oneDayAgo.getDate() - 1);
-    const after = Math.floor(oneDayAgo.getTime() / 1000);
+    // Get timestamp for specified hours ago
+    const lookbackTime = new Date();
+    lookbackTime.setHours(lookbackTime.getHours() - hours);
+    const after = Math.floor(lookbackTime.getTime() / 1000);
 
     // Search for emails with attachments (broader search - we'll filter by filename too)
     // Expanded keywords to catch more invoice-related emails

@@ -13,10 +13,14 @@ app.post('/scan', async (req, res) => {
   try {
     console.log('Starting scan...');
     const testMode = req.query.test === 'true';
+    const hours = parseInt(req.query.hours) || 24;
+
     if (testMode) {
       console.log('⚠️  RUNNING IN TEST MODE: Email sending will be skipped.');
     }
-    const result = await scanEmails(testMode);
+    console.log(`📅 Scanning emails from the last ${hours} hours`);
+
+    const result = await scanEmails(testMode, hours);
     console.log('Scan complete:', result);
     res.status(200).send({ status: 'success', data: result });
   } catch (error) {
