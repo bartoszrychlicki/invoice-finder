@@ -1,12 +1,34 @@
 require('dotenv').config();
 const express = require('express');
 const { scanEmails } = require('./gmail');
+const { getRecentExecutions } = require('./audit_log');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
 
 app.get('/', (req, res) => {
   res.send('Gmail Invoice Scanner is running.');
+});
+
+app.get('/health', async (req, res) => {
+  try {
+    const { checkTokenHealth } = require('./auth');
+    await checkTokenHealth();
+
+    const logs = await getRecentExecutions(7); // Last 7 days
+
+    res.status(200).json({
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      execution_logs: logs
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'unhealthy',
+      error: error.message,
+      timestamp: new Date().toISOString()
+    });
+  }
 });
 
 app.post('/scan', async (req, res) => {

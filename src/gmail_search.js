@@ -8,7 +8,7 @@ const { generateSearchQueries } = require('./openai');
  * @param {Object} auth - OAuth2 client.
  * @returns {Promise<Object>} - Result { found: boolean, emailId: string, query: string }
  */
-async function findMissingInvoice(transaction, auth) {
+async function findMissingInvoice(transaction, auth, searchAmount = null) {
     // 1. Filter out internal transactions and income
     if (transaction.amount > 0) {
         console.log(`  -> Skipping search: Income transaction (${transaction.amount})`);
@@ -32,8 +32,58 @@ async function findMissingInvoice(transaction, auth) {
     }
 
     // 2. Generate Search Queries
-    console.log(`  -> Generating search queries for: ${transaction.counterparty} (${transaction.amount})`);
-    const queries = await generateSearchQueries(transaction);
+    const targetAmount = searchAmount ? Math.abs(searchAmount) : Math.abs(transaction.amount);
+    console.log(`  -> Generating search queries for: ${transaction.counterparty} (Target: ${targetAmount})`);
+
+    const deterministicQueries = [];
+    const amountStr = targetAmount.toFixed(2).replace('.', ','); // Polish format 123,45
+    const amountStrDot = targetAmount.toFixed(2); // Dot format 123.45
+
+    // Date range: +/- 5 days
+    // Need to parse transaction.date (YYYY-MM-DD or DD-MM-YYYY)
+    // reconcile.js uses DD-MM-YYYY for CSV and YYYY-MM-DD for MT940?
+    // Let's try to handle both or assume standard Date object if passed?
+    // transaction.date is string.
+
+    // Strategy 1: Exact Amount + "faktura"
+    deterministicQueries.push(`"${amountStr}" faktura`);
+    deterministicQueries.push(`"${amountStrDot}" invoice`);
+
+    // Strategy 2: Counterparty + "faktura"
+    if (transaction.counterparty) {
+        // Clean counterparty name (remove "Sp. z o.o.", address etc.)
+        const cleanName = transaction.counterparty.split(',')[0].replace(/Sp\.? z o\.?o\.?/i, '').trim();
+        if (cleanName.length > 3) {
+            deterministicQueries.push(`"${cleanName}" faktura`);
+            deterministicQueries.push(`"${cleanName}" invoice`);
+            deterministicQueries.push(`from:"${cleanName}" has:attachment`);
+        }
+    }
+
+    // Strategy 3: Invoice Number from Description
+    // Extract potential invoice numbers (e.g. "FV/123/2025")
+    const desc = transaction.description || '';
+    const potentialNumbers = desc.match(/[A-Z0-9\/-]{5,}/g);
+    if (potentialNumbers) {
+        potentialNumbers.forEach(num => {
+            // Filter out obvious non-invoice numbers (like IBANs or dates)
+            if (!num.match(/^\d{26}$/) && !num.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                deterministicQueries.push(`"${num}"`);
+            }
+        });
+    }
+
+    // Combine with OpenAI queries
+    let queries = [...deterministicQueries];
+
+    // Only ask OpenAI if we have few queries or want more variations
+    if (queries.length < 5) {
+        const aiQueries = await generateSearchQueries(transaction);
+        if (aiQueries) queries = [...queries, ...aiQueries];
+    }
+
+    // Deduplicate
+    queries = [...new Set(queries)];
 
     if (!queries || queries.length === 0) {
         console.log(`  -> No queries generated.`);
@@ -99,11 +149,11 @@ async function checkForInvoiceAttachment(gmail, messageId) {
                     filename.endsWith('.pdf') ||
                     filename.endsWith('.jpg') ||
                     filename.endsWith('.jpeg') ||
-                    mimeType === 'application/pdf' ||
-                    mimeType === 'image/jpeg' ||
-                    mimeType === 'image/jpg'
+                    filename.endsWith('.png')
                 )) {
-                    return true;
+                    if (part.body && part.body.attachmentId) {
+                        return true;
+                    }
                 }
             }
         }

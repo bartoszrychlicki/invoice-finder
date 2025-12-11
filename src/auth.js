@@ -22,4 +22,23 @@ const getOAuth2Client = () => {
     return oAuth2Client;
 };
 
-module.exports = { getOAuth2Client };
+
+/**
+ * Checks if the current OAuth credentials are valid by attempting to refresh the access token.
+ * @returns {Promise<boolean>} True if healthy, throws error if unhealthy.
+ */
+const checkTokenHealth = async () => {
+    try {
+        const client = getOAuth2Client();
+        // This will attempt to refresh the token if needed.
+        // If the refresh token is invalid (revoked/expired), this will throw.
+        await client.getAccessToken();
+        return true;
+    } catch (error) {
+        console.error('Health check failed:', error.message);
+        throw error;
+    }
+};
+
+module.exports = { getOAuth2Client, checkTokenHealth };
+

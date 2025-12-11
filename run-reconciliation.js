@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { parseBankStatement } = require('./src/bank_parser');
+const { parseBankStatement, parseMT940 } = require('./src/bank_parser');
 const { reconcileTransactions, generateReport } = require('./src/reconcile');
 const { getOAuth2Client } = require('./src/auth');
 const { google } = require('googleapis');
@@ -27,7 +27,14 @@ async function main() {
     try {
         // 1. Parse Bank Statement
         console.log('Parsing bank statement...');
-        const transactions = await parseBankStatement(filePath);
+        let transactions = [];
+        if (filePath.endsWith('.sta') || filePath.endsWith('.mt940')) {
+            console.log('Detected MT940 format.');
+            transactions = await parseMT940(filePath);
+        } else {
+            console.log('Detected CSV format.');
+            transactions = await parseBankStatement(filePath);
+        }
         console.log(`Parsed ${transactions.length} transactions.`);
 
         // 2. Authenticate
@@ -35,12 +42,14 @@ async function main() {
         const sheets = google.sheets({ version: 'v4', auth });
 
         // 3. Reconcile
+        const skipSearch = args.includes('--skip-search');
         console.log('Reconciling with invoice registry...');
-        const result = await reconcileTransactions(transactions, sheets, config.spreadsheet_id);
+        const result = await reconcileTransactions(transactions, sheets, config.spreadsheet_id, skipSearch);
 
         console.log(`Reconciliation Complete.`);
         console.log(`  Matched: ${result.matched.length}`);
         console.log(`  Missing: ${result.missing.length}`);
+        console.log(`  Exempt: ${result.exempt.length}`);
 
         // 4. Generate Report
         console.log('Generating report...');

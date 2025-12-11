@@ -4,6 +4,7 @@ const { analyzeAttachment, generateJustification } = require('./openai');
 const { logToSheet, isDuplicate } = require('./sheets');
 const { convertPdfToImage, decryptPdf } = require('./pdf');
 const { saveInvoiceToDrive } = require('./drive');
+const { logExecution } = require('./audit_log');
 const config = require('./config');
 
 const gmail = google.gmail('v1');
@@ -14,21 +15,42 @@ const gmail = google.gmail('v1');
  * @param {boolean} testMode - If true, skips sending emails.
  * @param {number} hours - Number of hours to look back (default: 24).
  */
-async function scanEmails(testMode = false, hours = 24) {
+async function scanEmails(testMode = false, timeRange = 24) {
     const startTime = new Date();
     const auth = getOAuth2Client();
     const userId = 'me';
 
-    // Get timestamp for specified hours ago
-    const lookbackTime = new Date();
-    lookbackTime.setHours(lookbackTime.getHours() - hours);
-    const after = Math.floor(lookbackTime.getTime() / 1000);
+    let queryTimePart = '';
+    if (typeof timeRange === 'number') {
+        // Get timestamp for specified hours ago
+        const lookbackTime = new Date();
+        lookbackTime.setHours(lookbackTime.getHours() - timeRange);
+        const after = Math.floor(lookbackTime.getTime() / 1000);
+        queryTimePart = `after:${after}`;
+    } else if (typeof timeRange === 'object' && timeRange.after && timeRange.before) {
+        queryTimePart = `after:${timeRange.after} before:${timeRange.before}`;
+    } else {
+        // Default to 24h if invalid input
+        const lookbackTime = new Date();
+        lookbackTime.setHours(lookbackTime.getHours() - 24);
+        const after = Math.floor(lookbackTime.getTime() / 1000);
+        queryTimePart = `after:${after}`;
+    }
 
     // Search for emails with attachments (broader search - we'll filter by filename too)
     // Expanded keywords to catch more invoice-related emails
-    const keywords = '(faktura OR faktury OR invoice OR rachunek OR paragon OR inv OR receipt OR bill OR "dokument sprzedaży" OR "dokument zakupu" OR "potwierdzenie zakupu")';
-    const query = `has:attachment after:${after} ${keywords}`;
+    const keywords = '(faktura OR faktury OR invoice OR rachunek OR paragon OR inv OR receipt OR bill OR "dokument sprzedaży" OR "dokument zakupu" OR "potwierdzenie zakupu" OR fakturka)';
+    const query = `has:attachment ${queryTimePart} ${keywords}`;
     console.log(`Searching for emails with query: ${query}`);
+
+    // Ensure the label exists
+    let processedLabelId = null;
+    try {
+        processedLabelId = await ensureLabel(auth, userId, 'invoice-processed');
+    } catch (e) {
+        console.error('Failed to ensure label exists:', e.message);
+        // Continue even if label fails, we just won't be able to label it
+    }
 
     const errorLogs = [];
 
@@ -74,7 +96,7 @@ async function scanEmails(testMode = false, hours = 24) {
                 }
 
                 // Check if email or attachments contain invoice keywords
-                const invoiceKeywords = ['faktura', 'faktury', 'invoice', 'rachunek', 'paragon', 'inv', 'receipt', 'bill', 'dokument sprzedaży', 'dokument sprzedazy'];
+                const invoiceKeywords = ['faktura', 'faktury', 'invoice', 'rachunek', 'paragon', 'inv', 'receipt', 'bill', 'dokument sprzedaży', 'dokument sprzedazy', 'fakturka'];
                 const emailText = `${subject} ${from} ${to}`.toLowerCase();
                 const hasInvoiceKeywordInEmail = invoiceKeywords.some(keyword => emailText.includes(keyword));
 
@@ -107,7 +129,8 @@ async function scanEmails(testMode = false, hours = 24) {
                     if (part.filename && part.body && part.body.attachmentId) {
                         const mimeType = part.mimeType;
                         // Filter for PDF or Images
-                        if (mimeType === 'application/pdf' || mimeType.startsWith('image/')) {
+                        const isPdf = mimeType === 'application/pdf' || (mimeType === 'application/octet-stream' && part.filename.toLowerCase().endsWith('.pdf'));
+                        if (isPdf || mimeType.startsWith('image/')) {
                             // Skip small files (icons, logos, footers) < 20KB
                             if (part.body.size && part.body.size < 20000) {
                                 console.log(`  -> Skipping small file: ${part.filename} (${part.body.size} bytes)`);
@@ -127,7 +150,7 @@ async function scanEmails(testMode = false, hours = 24) {
                             let analysisMimeType = mimeType;
 
                             // Convert PDF to Image for OpenAI Vision
-                            if (mimeType === 'application/pdf') {
+                            if (isPdf) {
                                 console.log(`    -> Converting PDF to Image for analysis...`);
                                 try {
                                     const conversionResult = await convertPdfToImage(fileBuffer, config.pdf_passwords || []);
@@ -171,6 +194,24 @@ async function scanEmails(testMode = false, hours = 24) {
 
                             if (analysis.is_invoice) {
                                 console.log(`    -> Identified as INVOICE. Data:`, analysis.data);
+
+                                // STRICT VALIDATION: Check if Buyer NIP OR Buyer Name matches config
+                                const configBuyerNip = (config.buyer_tax_id || '').replace(/[^0-9]/g, '');
+                                const configBuyerName = (config.buyer_name || '').toLowerCase();
+
+                                const invoiceBuyerNip = (analysis.data.buyer_tax_id || '').replace(/[^0-9]/g, '');
+                                const invoiceBuyerName = (analysis.data.buyer_name || '').toLowerCase();
+
+                                const nipMatches = configBuyerNip && invoiceBuyerNip === configBuyerNip;
+                                const nameMatches = configBuyerName && invoiceBuyerName.includes(configBuyerName);
+
+                                if (!nipMatches && !nameMatches) {
+                                    console.log(`    -> SKIPPING: Invoice not for company. Buyer: '${analysis.data.buyer_name}' (NIP: ${analysis.data.buyer_tax_id}). Expected NIP: ${config.buyer_tax_id} OR Name containing: '${config.buyer_name}'`);
+                                    continue;
+                                }
+
+                                if (nipMatches) console.log(`    -> Validation passed: NIP matches.`);
+                                else if (nameMatches) console.log(`    -> Validation passed: Buyer name matches.`);
 
                                 // Check for duplicates FIRST (to save OpenAI tokens on justification)
                                 const auth = await getOAuth2Client();
@@ -216,17 +257,12 @@ async function scanEmails(testMode = false, hours = 24) {
                                     errorLogs.push(`Failed to log invoice to Sheets for ${part.filename} in email "${subject}"`);
                                 }
 
-                                // Check if buyer NIP matches (normalize both for comparison)
-                                const expectedBuyerNip = config.buyer_tax_id?.replace(/[^0-9]/g, '') || '';
-                                const actualBuyerNip = analysis.data.buyer_tax_id?.replace(/[^0-9]/g, '') || '';
-                                const nipMatches = expectedBuyerNip && actualBuyerNip === expectedBuyerNip;
-
-                                // Only send email if logged successfully AND NOT a duplicate AND buyer NIP matches
-                                if (sheetResult.logged && !sheetResult.isDuplicate && nipMatches) {
+                                // Only send email if logged successfully AND NOT a duplicate
+                                if (sheetResult.logged && !sheetResult.isDuplicate) {
                                     if (testMode) {
                                         console.log(`    -> TEST MODE: Skipping email send for ${part.filename}`);
                                     } else {
-                                        console.log(`    -> Sending email (new invoice with matching buyer NIP)...`);
+                                        console.log(`    -> Sending email (new invoice)...`);
                                         try {
                                             await sendInvoiceEmail(auth, part.filename, mimeType, fileBuffer, analysis.data);
                                         } catch (emailError) {
@@ -238,8 +274,19 @@ async function scanEmails(testMode = false, hours = 24) {
                                     console.error(`    -> Skipping email send (FAILED to log to Google Sheets)`);
                                 } else if (sheetResult.isDuplicate) {
                                     console.log(`    -> Skipping email send (duplicate detected)`);
-                                } else if (!nipMatches) {
-                                    console.log(`    -> Skipping email send (buyer NIP does not match: expected ${expectedBuyerNip}, got ${actualBuyerNip})`);
+                                }
+
+                                // Perform Post-Processing (Mark as Read, Archive, Add Label)
+                                // Only if logged successfully (we want to archive even if email sending failed, but not if logging failed)
+                                if (sheetResult.logged) {
+                                    console.log(`    -> Post-processing email (Archive, Mark Read, Label)...`);
+                                    try {
+                                        await markEmailAsProcessed(auth, userId, message.id, processedLabelId);
+                                        console.log(`    -> Email marked as processed.`);
+                                    } catch (postProcError) {
+                                        console.error(`    -> Failed to post-process email: ${postProcError.message}`);
+                                        errorLogs.push(`Failed to archive/label email ${subject}: ${postProcError.message}`);
+                                    }
                                 }
 
                                 results.push({
@@ -265,8 +312,36 @@ async function scanEmails(testMode = false, hours = 24) {
             await sendErrorEmail(auth, errorLogs, startTime);
         }
 
+        const endTime = new Date();
+        const duration = ((endTime - startTime) / 1000); // seconds
+
+        const invoicesFound = results.length;
+        const duplicates = results.filter(r => r.status === 'duplicate').length;
+        const processed = results.filter(r => r.status === 'processed').length;
+
+        // Log to System_Logs sheet
+        await logExecution({
+            status: errorLogs.length > 0 ? 'warning' : 'success',
+            invoicesFound,
+            duplicates,
+            processed,
+            duration
+        });
+
         return results;
     } catch (error) {
+        const endTime = new Date();
+        const duration = ((endTime - startTime) / 1000);
+
+        // Try to log the failure
+        await logExecution({
+            status: 'error',
+            invoicesFound: 0,
+            duplicates: 0,
+            processed: 0,
+            duration
+        });
+
         console.error('Fatal error scanning emails:', error);
         errorLogs.push(`Fatal error during scan: ${error.message}`);
         try {
@@ -404,6 +479,56 @@ async function sendErrorEmail(auth, errorLogs, startTime) {
     } catch (error) {
         console.error("Failed to send error report email:", error);
     }
+}
+
+/**
+ * Ensures a label exists in the user's Gmail.
+ * @returns {Promise<string>} The Label ID.
+ */
+async function ensureLabel(auth, userId, labelName) {
+    try {
+        const res = await gmail.users.labels.list({ auth, userId });
+        const labels = res.data.labels || [];
+        const existing = labels.find(l => l.name === labelName);
+
+        if (existing) {
+            return existing.id;
+        }
+
+        console.log(`Label '${labelName}' not found. Creating it...`);
+        const created = await gmail.users.labels.create({
+            auth,
+            userId,
+            requestBody: {
+                name: labelName,
+                labelListVisibility: 'labelShow',
+                messageListVisibility: 'show',
+            }
+        });
+        console.log(`Label '${labelName}' created (ID: ${created.data.id}).`);
+        return created.data.id;
+    } catch (error) {
+        console.error(`Error ensuring label '${labelName}':`, error.message);
+        throw error;
+    }
+}
+
+/**
+ * Marks an email as processed: removes UNREAD/INBOX, adds 'invoice-processed'.
+ */
+async function markEmailAsProcessed(auth, userId, messageId, labelId) {
+    const addLabelIds = [];
+    if (labelId) addLabelIds.push(labelId);
+
+    await gmail.users.messages.modify({
+        auth,
+        userId,
+        id: messageId,
+        requestBody: {
+            removeLabelIds: ['UNREAD', 'INBOX'],
+            addLabelIds: addLabelIds
+        }
+    });
 }
 
 module.exports = { scanEmails, sendErrorEmail };

@@ -104,6 +104,19 @@ This feature allows you to reconcile your bank transactions (CSV export) with th
 4.  **Generates Report**: Creates a new Google Sheet with two tabs:
     *   **Missing Invoices**: Transactions found in the bank statement but not in the registry.
     *   **Matched Transactions**: Successfully paired transactions.
+107: 
+108: ### Smart Search for Missing Invoices
+109: 
+110: If a transaction is found in the bank statement but misses a corresponding invoice in the registry, the system automatically triggers a **Smart Search**:
+111: 
+112: 1.  **Deep Search**: Scans your Gmail specifically for the missing amount and date range (looking for "lost" invoices).
+113: 2.  **AI Analysis**: If a potential email is found, it is analyzed by OpenAI.
+114: 3.  **Auto-Recovery**: If a valid invoice is found, it is automatically processed, logged to the registry, and then matched with the transaction.
+115: 
+116: You can disable this feature by adding the `--skip-search` flag:
+117: ```bash
+118: node run-reconciliation.js --file path/to/bank_statement.csv --skip-search
+119: ```
 
 ## Deployment to Cloud Run
 
