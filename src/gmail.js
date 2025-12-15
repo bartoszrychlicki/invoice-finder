@@ -39,7 +39,7 @@ async function scanEmails(testMode = false, timeRange = 24) {
 
     // Search for emails with attachments (broader search - we'll filter by filename too)
     // Expanded keywords to catch more invoice-related emails
-    const keywords = '(faktura OR faktury OR invoice OR rachunek OR paragon OR inv OR receipt OR bill OR "dokument sprzedaży" OR "dokument zakupu" OR "potwierdzenie zakupu" OR fakturka)';
+    const keywords = '(faktura OR faktury OR invoice OR rachunek OR paragon OR inv OR receipt OR bill OR "dokument sprzedaży" OR "dokument zakupu" OR "potwierdzenie zakupu" OR fakturka OR fv)';
     const query = `has:attachment ${queryTimePart} ${keywords}`;
     console.log(`Searching for emails with query: ${query}`);
 
@@ -88,15 +88,16 @@ async function scanEmails(testMode = false, timeRange = 24) {
                 if (targetEmail) {
                     // Extract all email addresses from the To field
                     const toAddresses = to.toLowerCase().split(',').map(addr => addr.trim());
-                    // Check if TARGET_EMAIL is the ONLY recipient
-                    if (toAddresses.length === 1 && toAddresses[0].includes(targetEmail.toLowerCase())) {
-                        console.log(`  -> Skipping: Email sent ONLY to TARGET_EMAIL (${targetEmail}) - avoiding re-scan of forwarded invoice`);
+                    // Check if TARGET_EMAIL is the ONLY recipient AND subject indicates it's a forwarded invoice
+                    // This prevents skipping legitimate invoices sent to the target email but not BY the system
+                    if (toAddresses.length === 1 && toAddresses[0].includes(targetEmail.toLowerCase()) && subject.startsWith("Forwarded Invoice:")) {
+                        console.log(`  -> Skipping: System generated forwarded invoice to TARGET_EMAIL (${targetEmail})`);
                         continue;
                     }
                 }
 
                 // Check if email or attachments contain invoice keywords
-                const invoiceKeywords = ['faktura', 'faktury', 'invoice', 'rachunek', 'paragon', 'inv', 'receipt', 'bill', 'dokument sprzedaży', 'dokument sprzedazy', 'fakturka'];
+                const invoiceKeywords = ['faktura', 'faktury', 'invoice', 'rachunek', 'paragon', 'inv', 'receipt', 'bill', 'dokument sprzedaży', 'dokument sprzedazy', 'fakturka', 'fv'];
                 const emailText = `${subject} ${from} ${to}`.toLowerCase();
                 const hasInvoiceKeywordInEmail = invoiceKeywords.some(keyword => emailText.includes(keyword));
 
@@ -199,14 +200,34 @@ async function scanEmails(testMode = false, timeRange = 24) {
                                 const configBuyerNip = (config.buyer_tax_id || '').replace(/[^0-9]/g, '');
                                 const configBuyerName = (config.buyer_name || '').toLowerCase();
 
+                                // Vendor Whitelist Logic
+                                let allowedNames = [configBuyerName];
+                                const vendorWhitelist = config.vendor_whitelist || [];
+
+                                const fromDomain = from.toLowerCase().match(/@([\w.-]+)/)?.[1];
+
+                                for (const vendor of vendorWhitelist) {
+                                    if (!vendor.match) continue;
+
+                                    const matchDomain = vendor.match.from_domain && fromDomain && fromDomain.includes(vendor.match.from_domain.toLowerCase());
+                                    const matchSubject = vendor.match.subject_regex && new RegExp(vendor.match.subject_regex, 'i').test(subject);
+
+                                    if (matchDomain || matchSubject) {
+                                        console.log(`    -> Matched Vendor Whitelist: Matches ${matchDomain ? 'Domain' : ''} ${matchSubject ? 'Subject' : ''}`);
+                                        if (vendor.allowed_buyer_names) {
+                                            allowedNames = allowedNames.concat(vendor.allowed_buyer_names.map(n => n.toLowerCase()));
+                                        }
+                                    }
+                                }
+
                                 const invoiceBuyerNip = (analysis.data.buyer_tax_id || '').replace(/[^0-9]/g, '');
                                 const invoiceBuyerName = (analysis.data.buyer_name || '').toLowerCase();
 
                                 const nipMatches = configBuyerNip && invoiceBuyerNip === configBuyerNip;
-                                const nameMatches = configBuyerName && invoiceBuyerName.includes(configBuyerName);
+                                const nameMatches = allowedNames.some(name => name && invoiceBuyerName.includes(name));
 
                                 if (!nipMatches && !nameMatches) {
-                                    console.log(`    -> SKIPPING: Invoice not for company. Buyer: '${analysis.data.buyer_name}' (NIP: ${analysis.data.buyer_tax_id}). Expected NIP: ${config.buyer_tax_id} OR Name containing: '${config.buyer_name}'`);
+                                    console.log(`    -> SKIPPING: Invoice not for company. Buyer: '${analysis.data.buyer_name}' (NIP: ${analysis.data.buyer_tax_id}). \n       Expected NIP: ${config.buyer_tax_id} OR Name containing one of: [${allowedNames.join(', ')}]`);
                                     continue;
                                 }
 

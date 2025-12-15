@@ -8,6 +8,16 @@
         "387996318",
         "85102602798"
     ],
+    "vendor_whitelist": [
+        {
+            "match": {
+                "from_domain": "apcoaflow.com"
+            },
+            "allowed_buyer_names": [
+                "Bartosz Rychlicki"
+            ]
+        }
+    ],
     "justification_rules": "- Elektronikę zawsze uzasadniamy jako sprzęt do developmentu i testowania oprogramowania.\n- Wyjścia do restauracji jako spotkania negocjacyjne z potencjalnymi kontrahentami (cel: sprzedaż/doradztwo).\n- Wyjazdy jako nadzór nad inwestycjami lub spotkania u klienta.",
     "exemptions": [
         {
