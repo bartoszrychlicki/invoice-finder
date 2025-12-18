@@ -15,6 +15,10 @@ async function analyzeAttachment(imageBuffer, mimeType) {
     const base64Image = imageBuffer.toString('base64');
     const dataUrl = `data:${mimeType};base64,${base64Image}`;
 
+    const config = require('./config');
+    const buyerTaxId = config.buyer_tax_id || '9571130261';
+    const buyerName = config.buyer_name || 'Rychlicki Holding Sp. z o.o.';
+
     const prompt = `
     Analyze this image. Is it a fiscal document (invoice, receipt, bill)?
     
@@ -34,7 +38,7 @@ async function analyzeAttachment(imageBuffer, mimeType) {
     - items: A comma-separated string of the main product/service names listed on the invoice (e.g. "Hosting Service, Domain Renewal").
 
     SPECIAL RULE FOR BUYER:
-    - If you see NIP "9571130261", that is the BUYER (Rychlicki Holding Sp. z o.o.).
+    - If you see NIP "${buyerTaxId}", that is the BUYER (${buyerName}).
     - Do NOT confuse buyer and seller.
     
     Return ONLY raw JSON. No markdown formatting.
