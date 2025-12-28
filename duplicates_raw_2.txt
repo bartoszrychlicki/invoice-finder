@@ -1,0 +1,248 @@
+[dotenv@17.2.3] injecting env (7) from .env -- tip: 🗂️ backup and recover secrets: https://dotenvx.com/ops
+Fetching invoices...
+[32minfo[39m: Fetching invoices from Infakt API... {"service":"gmail-invoice-scanner","timestamp":"2025-12-28T09:39:12.997Z"}
+[32minfo[39m: Fetched 298 invoices from Infakt. {"service":"gmail-invoice-scanner","timestamp":"2025-12-28T09:39:13.534Z"}
+Found 48 invoices in December 2025.
+Found 14 duplicate pairs.
+JSON_OUTPUT_START
+[
+  {
+    "original": {
+      "uuid": "9719c759-81ce-49b4-aa97-b9255e471764",
+      "number": "W003774",
+      "invoice_date": "2025-12-05",
+      "gross_price": 18000,
+      "client": "N/A",
+      "created_at": "2025-12-06 08:00:40 +0100"
+    },
+    "duplicate": {
+      "uuid": "c291a808-8f2f-4306-9031-0a8e212411b6",
+      "number": "W003774",
+      "invoice_date": "2025-12-05",
+      "gross_price": 18000,
+      "created_at": "2025-12-08 11:29:03 +0100"
+    }
+  },
+  {
+    "original": {
+      "uuid": "52f2dbb2-2cbd-498f-bbcc-2ba8e8bb7504",
+      "number": "A9/12/2025",
+      "invoice_date": "2025-12-19",
+      "gross_price": 75000,
+      "client": "idomi IZABELA DOMINKO",
+      "created_at": "2025-12-19 20:00:24 +0100"
+    },
+    "duplicate": {
+      "uuid": "68057f34-2a0e-4afe-9a9d-07f02a610268",
+      "number": "A9/12/2025",
+      "invoice_date": "2025-12-19",
+      "gross_price": 75000,
+      "created_at": "2025-12-20 08:00:25 +0100"
+    }
+  },
+  {
+    "original": {
+      "uuid": "52f2dbb2-2cbd-498f-bbcc-2ba8e8bb7504",
+      "number": "A9/12/2025",
+      "invoice_date": "2025-12-19",
+      "gross_price": 75000,
+      "client": "idomi IZABELA DOMINKO",
+      "created_at": "2025-12-19 20:00:24 +0100"
+    },
+    "duplicate": {
+      "uuid": "bae6059f-7c44-4c43-ae0b-2ce93616d9fe",
+      "number": "A9/12/2025",
+      "invoice_date": "2025-12-19",
+      "gross_price": 75000,
+      "created_at": "2025-12-20 13:00:44 +0100"
+    }
+  },
+  {
+    "original": {
+      "uuid": "21aa9b79-a722-4041-87e3-d9d5e07e6159",
+      "number": "25466/0126/RM",
+      "invoice_date": "2025-12-22",
+      "gross_price": 289880,
+      "client": "VOLKSWAGEN FINANCIAL SERVICES POLSKA Sp. z o.o.",
+      "created_at": "2025-12-24 08:00:32 +0100"
+    },
+    "duplicate": {
+      "uuid": "5c3a208e-7267-478f-86c4-6511e8e6b67a",
+      "number": "25466/0126/RM",
+      "invoice_date": "2025-12-22",
+      "gross_price": 289880,
+      "created_at": "2025-12-24 13:00:45 +0100"
+    }
+  },
+  {
+    "original": {
+      "uuid": "21aa9b79-a722-4041-87e3-d9d5e07e6159",
+      "number": "25466/0126/RM",
+      "invoice_date": "2025-12-22",
+      "gross_price": 289880,
+      "client": "VOLKSWAGEN FINANCIAL SERVICES POLSKA Sp. z o.o.",
+      "created_at": "2025-12-24 08:00:32 +0100"
+    },
+    "duplicate": {
+      "uuid": "49fc3fa7-3c0c-48d5-994c-929ebe74175b",
+      "number": "25466/0126/RM",
+      "invoice_date": "2025-12-22",
+      "gross_price": 289880,
+      "created_at": "2025-12-24 20:00:45 +0100"
+    }
+  },
+  {
+    "original": {
+      "uuid": "4dcadd1e-f35f-47a9-87c9-bedb02d3cf12",
+      "number": "36/12/2025",
+      "invoice_date": "2025-12-23",
+      "gross_price": 16000,
+      "client": "KAROLGUSTAWCHEFS Sp. z o.o.",
+      "created_at": "2025-12-24 08:00:45 +0100"
+    },
+    "duplicate": {
+      "uuid": "9d27d19e-c1cd-4986-8f0c-be5055222e3f",
+      "number": "36/12/2025",
+      "invoice_date": "2025-12-23",
+      "gross_price": 16000,
+      "created_at": "2025-12-24 13:00:57 +0100"
+    }
+  },
+  {
+    "original": {
+      "uuid": "38316813-db1f-42a2-8eba-85b5cf75501b",
+      "number": "DCA669C4-0008",
+      "invoice_date": "2025-12-24",
+      "gross_price": 1800,
+      "client": "N/A",
+      "created_at": "2025-12-24 13:00:31 +0100"
+    },
+    "duplicate": {
+      "uuid": "d61e6501-8794-4551-99e4-fae0b7d048c6",
+      "number": "DCA669C4-0008",
+      "invoice_date": "2025-12-24",
+      "gross_price": 1800,
+      "created_at": "2025-12-24 20:00:31 +0100"
+    }
+  },
+  {
+    "original": {
+      "uuid": "38316813-db1f-42a2-8eba-85b5cf75501b",
+      "number": "DCA669C4-0008",
+      "invoice_date": "2025-12-24",
+      "gross_price": 1800,
+      "client": "N/A",
+      "created_at": "2025-12-24 13:00:31 +0100"
+    },
+    "duplicate": {
+      "uuid": "6ff2ee89-fedd-4e87-b864-037373648c62",
+      "number": "DCA669C4-0008",
+      "invoice_date": "2025-12-24",
+      "gross_price": 1800,
+      "created_at": "2025-12-25 08:00:28 +0100"
+    }
+  },
+  {
+    "original": {
+      "uuid": "e22055b7-a0be-4d37-8ba8-d13d21c63ed3",
+      "number": "ET6U76ZX-0001",
+      "invoice_date": "2025-12-15",
+      "gross_price": 2500,
+      "client": "N/A",
+      "created_at": "2025-12-27 11:15:50 +0100"
+    },
+    "duplicate": {
+      "uuid": "89105547-c04c-4ecf-8586-d1b875d16f95",
+      "number": "ET6U76ZX-0001",
+      "invoice_date": "2025-12-15",
+      "gross_price": 2500,
+      "created_at": "2025-12-27 11:18:44 +0100"
+    }
+  },
+  {
+    "original": {
+      "uuid": "e22055b7-a0be-4d37-8ba8-d13d21c63ed3",
+      "number": "ET6U76ZX-0001",
+      "invoice_date": "2025-12-15",
+      "gross_price": 2500,
+      "client": "N/A",
+      "created_at": "2025-12-27 11:15:50 +0100"
+    },
+    "duplicate": {
+      "uuid": "a97da24c-3dc7-4ace-a7e1-9ee24121b8ba",
+      "number": "ET6U76ZX-0001",
+      "invoice_date": "2025-12-15",
+      "gross_price": 2500,
+      "created_at": "2025-12-27 11:19:02 +0100"
+    }
+  },
+  {
+    "original": {
+      "uuid": "e22055b7-a0be-4d37-8ba8-d13d21c63ed3",
+      "number": "ET6U76ZX-0001",
+      "invoice_date": "2025-12-15",
+      "gross_price": 2500,
+      "client": "N/A",
+      "created_at": "2025-12-27 11:15:50 +0100"
+    },
+    "duplicate": {
+      "uuid": "5aa92cbd-ea48-49ed-9c30-c1c844ffa223",
+      "number": "ET6U76ZX-0001",
+      "invoice_date": "2025-12-15",
+      "gross_price": 2500,
+      "created_at": "2025-12-27 13:00:29 +0100"
+    }
+  },
+  {
+    "original": {
+      "uuid": "e22055b7-a0be-4d37-8ba8-d13d21c63ed3",
+      "number": "ET6U76ZX-0001",
+      "invoice_date": "2025-12-15",
+      "gross_price": 2500,
+      "client": "N/A",
+      "created_at": "2025-12-27 11:15:50 +0100"
+    },
+    "duplicate": {
+      "uuid": "74396fcb-1317-4155-a4e0-cb61a36dd2bc",
+      "number": "ET6U76ZX-0001",
+      "invoice_date": "2025-12-15",
+      "gross_price": 2500,
+      "created_at": "2025-12-27 20:00:40 +0100"
+    }
+  },
+  {
+    "original": {
+      "uuid": "e22055b7-a0be-4d37-8ba8-d13d21c63ed3",
+      "number": "ET6U76ZX-0001",
+      "invoice_date": "2025-12-15",
+      "gross_price": 2500,
+      "client": "N/A",
+      "created_at": "2025-12-27 11:15:50 +0100"
+    },
+    "duplicate": {
+      "uuid": "d494376a-715a-4f0e-8042-340fa59f00b9",
+      "number": "ET6U76ZX-0001",
+      "invoice_date": "2025-12-15",
+      "gross_price": 2500,
+      "created_at": "2025-12-28 08:00:40 +0100"
+    }
+  },
+  {
+    "original": {
+      "uuid": "9ef2aac3-8ea7-4235-8e07-2c2df8154108",
+      "number": "00957625070665200",
+      "invoice_date": "2025-12-27",
+      "gross_price": 31989,
+      "client": "CIRCLE K POLSKA Sp. z o.o.",
+      "created_at": "2025-12-27 20:00:30 +0100"
+    },
+    "duplicate": {
+      "uuid": "abbb7dab-47d2-4b09-862c-f4d55be616b8",
+      "number": "00957625070665200",
+      "invoice_date": "2025-12-27",
+      "gross_price": 31989,
+      "created_at": "2025-12-28 08:00:30 +0100"
+    }
+  }
+]
+JSON_OUTPUT_END
