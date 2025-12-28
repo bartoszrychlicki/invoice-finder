@@ -1,6 +1,8 @@
 const { google } = require('googleapis');
 const { getOAuth2Client } = require('./auth');
 const config = require('./config');
+const logger = require('./utils/logger');
+const { withRetry } = require('./utils/retry');
 
 const LOG_SHEET_TITLE = 'System_Logs';
 
@@ -9,12 +11,12 @@ const LOG_SHEET_TITLE = 'System_Logs';
  */
 async function ensureLogSheet(sheets, spreadsheetId) {
     try {
-        const spreadsheet = await sheets.spreadsheets.get({ spreadsheetId });
+        const spreadsheet = await withRetry(() => sheets.spreadsheets.get({ spreadsheetId }));
         const sheet = spreadsheet.data.sheets.find(s => s.properties.title === LOG_SHEET_TITLE);
 
         if (!sheet) {
-            console.log(`Creating sheet '${LOG_SHEET_TITLE}'...`);
-            await sheets.spreadsheets.batchUpdate({
+            logger.info(`Creating log sheet`, { title: LOG_SHEET_TITLE });
+            await withRetry(() => sheets.spreadsheets.batchUpdate({
                 spreadsheetId,
                 requestBody: {
                     requests: [{
@@ -23,32 +25,24 @@ async function ensureLogSheet(sheets, spreadsheetId) {
                         }
                     }]
                 }
-            });
+            }));
 
-            // Add headers
-            await sheets.spreadsheets.values.update({
+            await withRetry(() => sheets.spreadsheets.values.update({
                 spreadsheetId,
                 range: `${LOG_SHEET_TITLE}!A1:F1`,
                 valueInputOption: 'RAW',
                 requestBody: {
                     values: [['Timestamp', 'Status', 'Invoices Found', 'Duplicates', 'Processed', 'Duration (s)']]
                 }
-            });
+            }));
         }
     } catch (error) {
-        console.error(`Error ensuring log sheet exists: ${error.message}`);
-        // Don't throw, we might just fail to write logs which is non-critical for the main flow
+        logger.error(`Error ensuring log sheet exists`, { error: error.message });
     }
 }
 
 /**
  * Logs an execution to the Google Sheet.
- * @param {Object} stats - Execution statistics.
- * @param {string} stats.status - 'success' or 'error'
- * @param {number} stats.invoicesFound
- * @param {number} stats.duplicates
- * @param {number} stats.processed
- * @param {number} stats.duration
  */
 async function logExecution(stats) {
     if (!config.spreadsheet_id) return;
@@ -68,22 +62,20 @@ async function logExecution(stats) {
     ];
 
     try {
-        await sheets.spreadsheets.values.append({
+        await withRetry(() => sheets.spreadsheets.values.append({
             spreadsheetId: config.spreadsheet_id,
             range: `${LOG_SHEET_TITLE}!A:F`,
             valueInputOption: 'USER_ENTERED',
             requestBody: { values: [row] }
-        });
-        console.log('Execution stats logged to Sheets.');
+        }));
+        logger.info('Execution stats logged to Sheets.');
     } catch (error) {
-        console.error(`Failed to log execution stats: ${error.message}`);
+        logger.error(`Failed to log execution stats`, { error: error.message });
     }
 }
 
 /**
  * Retrieves execution logs from the last N days.
- * @param {number} days - Number of days to look back.
- * @returns {Promise<Array>}
  */
 async function getRecentExecutions(days = 7) {
     if (!config.spreadsheet_id) return [];
@@ -92,17 +84,15 @@ async function getRecentExecutions(days = 7) {
     const sheets = google.sheets({ version: 'v4', auth });
 
     try {
-        const response = await sheets.spreadsheets.values.get({
+        const response = await withRetry(() => sheets.spreadsheets.values.get({
             spreadsheetId: config.spreadsheet_id,
             range: `${LOG_SHEET_TITLE}!A:F`,
-        });
+        }));
 
         const rows = response.data.values || [];
-        if (rows.length < 2) return []; // Only header or empty
+        if (rows.length < 2) return [];
 
-        const headers = rows[0]; // Timestamp, Status, etc.
         const data = rows.slice(1);
-
         const cutoffDate = new Date();
         cutoffDate.setDate(cutoffDate.getDate() - days);
 
@@ -119,10 +109,10 @@ async function getRecentExecutions(days = 7) {
                 const itemDate = new Date(item.timestamp);
                 return itemDate >= cutoffDate;
             })
-            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)); // Newest first
+            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
     } catch (error) {
-        console.error(`Error fetching execution logs: ${error.message}`);
+        logger.error(`Error fetching execution logs`, { error: error.message });
         return [];
     }
 }

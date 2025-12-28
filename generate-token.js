@@ -6,7 +6,7 @@ const open = require('open');
 const { GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET } = process.env;
 
 // Use the same redirect URI as the main application to ensure it's whitelisted
-const REDIRECT_URI = 'https://developers.google.com/oauthplayground';
+const REDIRECT_URI = 'urn:ietf:wg:oauth:2.0:oob';
 
 const oAuth2Client = new google.auth.OAuth2(
     GOOGLE_CLIENT_ID,
@@ -24,7 +24,8 @@ const scopes = [
 const authUrl = oAuth2Client.generateAuthUrl({
     access_type: 'offline',
     scope: scopes,
-    prompt: 'consent'
+    prompt: 'consent',
+    response_type: 'code'
 });
 
 console.log('=== OAuth2 Token Generator (Manual Mode) ===\n');

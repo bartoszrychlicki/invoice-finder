@@ -1,13 +1,11 @@
 const { google } = require('googleapis');
+const logger = require('../utils/logger');
+const { withRetry } = require('../utils/retry');
 
 const gmail = google.gmail('v1');
 
 /**
  * Searches for emails that might contain invoices.
- * @param {Object} auth - OAuth2 client.
- * @param {string} userId - Gmail user ID.
- * @param {number|Object} timeRange - Number of hours or range object.
- * @returns {Promise<Array>} - List of message objects.
  */
 async function findEmails(auth, userId, timeRange) {
     let queryTimePart = '';
@@ -27,15 +25,19 @@ async function findEmails(auth, userId, timeRange) {
 
     const keywords = '(faktura OR faktury OR invoice OR rachunek OR paragon OR inv OR receipt OR bill OR "dokument sprzedaży" OR "dokument zakupu" OR "potwierdzenie zakupu" OR fakturka OR fv)';
     const query = `has:attachment ${queryTimePart} ${keywords}`;
-    console.log(`Searching for emails with query: ${query}`);
+    logger.debug(`Searching Gmail`, { query });
 
-    const res = await gmail.users.messages.list({
-        auth,
-        userId,
-        q: query,
-    });
-
-    return res.data.messages || [];
+    try {
+        const res = await withRetry(() => gmail.users.messages.list({
+            auth,
+            userId,
+            q: query,
+        }));
+        return res.data.messages || [];
+    } catch (error) {
+        logger.error("Error listing messages from Gmail", { error: error.message });
+        return [];
+    }
 }
 
 /**
@@ -43,7 +45,7 @@ async function findEmails(auth, userId, timeRange) {
  */
 async function ensureLabel(auth, userId, labelName) {
     try {
-        const res = await gmail.users.labels.list({ auth, userId });
+        const res = await withRetry(() => gmail.users.labels.list({ auth, userId }));
         const labels = res.data.labels || [];
         const existing = labels.find(l => l.name === labelName);
 
@@ -51,8 +53,8 @@ async function ensureLabel(auth, userId, labelName) {
             return existing.id;
         }
 
-        console.log(`Label '${labelName}' not found. Creating it...`);
-        const created = await gmail.users.labels.create({
+        logger.info(`Label not found, creating it`, { labelName });
+        const created = await withRetry(() => gmail.users.labels.create({
             auth,
             userId,
             requestBody: {
@@ -60,11 +62,11 @@ async function ensureLabel(auth, userId, labelName) {
                 labelListVisibility: 'labelShow',
                 messageListVisibility: 'show',
             }
-        });
-        console.log(`Label '${labelName}' created (ID: ${created.data.id}).`);
+        }));
+        logger.info(`Label created`, { labelName, id: created.data.id });
         return created.data.id;
     } catch (error) {
-        console.error(`Error ensuring label '${labelName}':`, error.message);
+        logger.error(`Error ensuring label`, { labelName, error: error.message });
         throw error;
     }
 }

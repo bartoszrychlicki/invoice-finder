@@ -1,12 +1,14 @@
 const { google } = require('googleapis');
 const config = require('../config');
+const logger = require('../utils/logger');
+const { withRetry } = require('../utils/retry');
 
 const gmail = google.gmail('v1');
 
 async function sendInvoiceEmail(auth, filename, mimeType, fileBuffer, invoiceData) {
     const targetEmail = config.target_email;
     if (!targetEmail) {
-        console.warn("No TARGET_EMAIL configured, skipping email send.");
+        logger.warn("No TARGET_EMAIL configured, skipping email send.");
         return;
     }
 
@@ -54,23 +56,23 @@ async function sendInvoiceEmail(auth, filename, mimeType, fileBuffer, invoiceDat
         .replace(/=+$/, '');
 
     try {
-        await gmail.users.messages.send({
+        await withRetry(() => gmail.users.messages.send({
             auth,
             userId: 'me',
             requestBody: {
                 raw: encodedMessage,
             },
-        });
-        console.log(`Sent invoice email to ${targetEmail}`);
+        }));
+        logger.info(`Sent invoice email`, { to: targetEmail, filename });
     } catch (error) {
-        console.error("Error sending email:", error);
+        logger.error("Error sending invoice email", { error: error.message });
     }
 }
 
 async function sendErrorEmail(auth, errorLogs, startTime) {
     const adminEmail = config.admin_email;
     if (!adminEmail) {
-        console.warn("No ADMIN_EMAIL configured, skipping error email.");
+        logger.warn("No ADMIN_EMAIL configured, skipping error email.");
         return;
     }
 
@@ -115,16 +117,16 @@ async function sendErrorEmail(auth, errorLogs, startTime) {
         .replace(/=+$/, '');
 
     try {
-        await gmail.users.messages.send({
+        await withRetry(() => gmail.users.messages.send({
             auth,
             userId: 'me',
             requestBody: {
                 raw: encodedMessage,
             },
-        });
-        console.log(`Sent error report email to ${adminEmail}`);
+        }));
+        logger.info(`Sent error report email`, { to: adminEmail });
     } catch (error) {
-        console.error("Failed to send error report email:", error);
+        logger.error("Failed to send error report email", { error: error.message });
     }
 }
 

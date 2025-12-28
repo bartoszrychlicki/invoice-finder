@@ -1,4 +1,6 @@
 const OpenAI = require('openai');
+const logger = require('./utils/logger');
+const { withRetry } = require('./utils/retry');
 require('dotenv').config();
 
 const openai = new OpenAI({
@@ -45,7 +47,7 @@ async function analyzeAttachment(imageBuffer, mimeType) {
     `;
 
     try {
-        const response = await openai.chat.completions.create({
+        const response = await withRetry(() => openai.chat.completions.create({
             model: "gpt-4o",
             messages: [
                 {
@@ -62,16 +64,12 @@ async function analyzeAttachment(imageBuffer, mimeType) {
                 },
             ],
             response_format: { type: "json_object" },
-        });
+        }));
 
         const content = response.choices[0].message.content;
         return JSON.parse(content);
     } catch (error) {
-        console.error("Error analyzing attachment with OpenAI:", error);
-        if (error.response) {
-            console.error("  Error type:", error.response.data.error.type);
-            console.error("  Error message:", error.response.data.error.message);
-        }
+        logger.error("Error analyzing attachment with OpenAI", { error: error.message, stack: error.stack });
         return null;
     }
 }
@@ -84,7 +82,7 @@ async function analyzeAttachment(imageBuffer, mimeType) {
  */
 async function generateJustification(invoiceData, businessContext, promptInstructions) {
     if (!businessContext) {
-        console.warn("No BUSINESS_CONTEXT provided, skipping justification.");
+        logger.warn("No BUSINESS_CONTEXT provided, skipping justification.");
         return "Brak konfiguracji kontekstu biznesowego.";
     }
 
@@ -117,24 +115,22 @@ Tylko gotowy tekst uzasadnienia.
 **Język: Polski.**
     `;
 
-    console.log("--- FULL JUSTIFICATION PROMPT ---");
-    console.log(prompt);
-    console.log("---------------------------------");
+    logger.debug("Justification prompt generated", { seller: invoiceData.seller_name });
 
     try {
-        const response = await openai.chat.completions.create({
+        const response = await withRetry(() => openai.chat.completions.create({
             model: "gpt-4o",
             messages: [
                 { role: "system", content: "You are a helpful assistant." },
                 { role: "user", content: prompt }
             ],
             max_tokens: 150,
-        });
+        }));
 
         const justification = response.choices[0].message.content.trim();
         return justification;
     } catch (error) {
-        console.error("Error generating justification:", error);
+        logger.error("Error generating justification", { error: error.message });
         return "Błąd generowania uzasadnienia.";
     }
 }
@@ -145,16 +141,11 @@ Tylko gotowy tekst uzasadnienia.
  * @returns {Promise<Array<string>>} - Array of search queries.
  */
 async function generateSearchQueries(transaction) {
-    // Extract counterparty name (remove address/extra info)
     const counterpartyName = (transaction.counterparty || '').split('|')[0].trim();
-
-    // Detect card transactions (Nest Bank)
     const isCardTransaction = counterpartyName.toLowerCase().includes('nest bank');
 
     let prompt;
-
     if (isCardTransaction) {
-        // For card transactions, focus on description and amount
         prompt = `Generate Gmail search queries to find an invoice email for a CARD TRANSACTION.
 
 Transaction:
@@ -173,7 +164,6 @@ Generate 3-5 search queries focusing on:
 Return JSON with "queries" array.
 Example: {"queries": ["CLAUDE.AI invoice", "ANTHROPIC.COM", "Claude subscription"]}`;
     } else {
-        // For regular transactions, use counterparty
         prompt = `Generate Gmail search queries to find an invoice email.
 
 Transaction:
@@ -193,28 +183,26 @@ Example: {"queries": ["from:Uber subject:invoice", "Uber faktura", "invoice 750"
     }
 
     try {
-        const response = await openai.chat.completions.create({
+        const response = await withRetry(() => openai.chat.completions.create({
             model: "gpt-4o",
             messages: [
                 { role: "system", content: "You generate Gmail search queries. Always return valid JSON with a 'queries' array." },
                 { role: "user", content: prompt }
             ],
             response_format: { type: "json_object" },
-        });
+        }));
 
         const content = JSON.parse(response.choices[0].message.content);
         const queries = content.queries || content.search_queries || [];
 
-        // Fallback: if LLM returns empty or invalid, generate basic queries
         if (!queries || queries.length === 0) {
-            console.log(`  -> LLM returned no queries, using fallback for: ${counterpartyName}`);
+            logger.info("LLM returned no queries, using fallback", { counterparty: counterpartyName });
             return generateFallbackQueries(transaction, counterpartyName);
         }
 
         return queries;
     } catch (error) {
-        console.error("Error generating search queries:", error);
-        // Fallback to basic queries
+        logger.error("Error generating search queries", { error: error.message });
         return generateFallbackQueries(transaction, counterpartyName);
     }
 }
@@ -224,25 +212,19 @@ Example: {"queries": ["from:Uber subject:invoice", "Uber faktura", "invoice 750"
  */
 function generateFallbackQueries(transaction, counterpartyName) {
     const queries = [];
-
-    // Query 1: Just counterparty name + "faktura"
     if (counterpartyName) {
         queries.push(`${counterpartyName} faktura`);
         queries.push(`${counterpartyName} invoice`);
         queries.push(`from:${counterpartyName}`);
     }
-
-    // Query 2: Description keywords
     if (transaction.description) {
         const descKeywords = transaction.description.split(/[\s,|]+/).slice(0, 3).join(' ');
         queries.push(`${descKeywords} invoice`);
     }
-
-    // Query 3: Amount-based (rough)
     const amount = Math.abs(transaction.amount);
     queries.push(`${amount} PLN faktura`);
 
-    return queries.slice(0, 5); // Max 5 queries
+    return queries.slice(0, 5);
 }
 
 module.exports = { analyzeAttachment, generateJustification, generateSearchQueries };

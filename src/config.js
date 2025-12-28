@@ -18,5 +18,7 @@ try {
 
 // Allow environment variables to override config file
 config.admin_email = process.env.ADMIN_EMAIL || config.admin_email;
+config.infakt_api_key = process.env.INFAKT_API_KEY || config.infakt_api_key;
+config.check_infakt_duplicates = process.env.CHECK_INFAKT_DUPLICATES === 'false' ? false : (config.check_infakt_duplicates !== false);
 
 module.exports = config;

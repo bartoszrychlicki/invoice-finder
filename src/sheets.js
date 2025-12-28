@@ -1,14 +1,9 @@
 const { google } = require('googleapis');
 const { getOAuth2Client } = require('./auth');
 const config = require('./config');
+const logger = require('./utils/logger');
+const { withRetry } = require('./utils/retry');
 
-/**
- * Checks if an invoice already exists in the spreadsheet.
- * @param {Object} sheets - Google Sheets API instance.
- * @param {string} spreadsheetId - The spreadsheet ID.
- * @param {Object} data - The invoice data to check.
- * @returns {Promise<boolean>} - True if duplicate found, false otherwise.
- */
 /**
  * Normalizes a string for comparison (removes non-alphanumeric, lowercase).
  */
@@ -23,69 +18,34 @@ function normalizeString(str) {
 function parseAmount(val) {
     if (typeof val === 'number') return val;
     if (!val) return 0;
-    // Replace comma with dot, remove non-numeric chars except dot and minus
     const clean = val.toString().replace(',', '.').replace(/[^\d.-]/g, '');
     return parseFloat(clean) || 0;
 }
 
 /**
- * Checks if an invoice already exists in the spreadsheet using a Scoring System.
- * Threshold for duplicate is 80 points.
- * 
- * Scoring:
- * - Amount Match: 40 pts
- * - Date Match: 30 pts
- * - Number Match (Normalized): 20 pts
- * - Seller NIP Match (Normalized): 20 pts
- * - Buyer NIP Match (Normalized): 10 pts
- * 
- * @param {Object} sheets - Google Sheets API instance.
- * @param {string} spreadsheetId - The spreadsheet ID.
- * @param {Object} data - The invoice data to check.
- * @returns {Promise<boolean>} - True if duplicate found, false otherwise.
- */
-/**
  * Fetches all invoices from the spreadsheet.
- * @param {Object} sheets - Google Sheets API instance.
- * @param {string} spreadsheetId - The spreadsheet ID.
- * @returns {Promise<Array<Array<string>>>} - Array of rows.
  */
 async function getAllInvoices(sheets, spreadsheetId) {
     try {
-        const response = await sheets.spreadsheets.values.get({
+        const response = await withRetry(() => sheets.spreadsheets.values.get({
             spreadsheetId,
-            range: 'A:M', // All columns
-        });
+            range: 'A:M',
+        }));
         const rows = response.data.values || [];
-        // Skip header row if exists
         return rows.length > 0 && rows[0][0] === 'Timestamp' ? rows.slice(1) : rows;
     } catch (error) {
-        console.error("Error fetching invoices:", error.message);
+        logger.error("Error fetching invoices from Sheets", { error: error.message });
         return [];
     }
 }
 
 /**
  * Checks if an invoice already exists in the spreadsheet using a Scoring System.
- * Threshold for duplicate is 80 points.
- * 
- * Scoring:
- * - Amount Match: 40 pts
- * - Date Match: 30 pts
- * - Number Match (Normalized): 20 pts
- * - Seller NIP Match (Normalized): 20 pts
- * - Buyer NIP Match (Normalized): 10 pts
- * 
- * @param {Object} sheets - Google Sheets API instance.
- * @param {string} spreadsheetId - The spreadsheet ID.
- * @param {Object} data - The invoice data to check.
- * @returns {Promise<boolean>} - True if duplicate found, false otherwise.
  */
 async function isDuplicate(sheets, spreadsheetId, data) {
     try {
         const dataRows = await getAllInvoices(sheets, spreadsheetId);
-
-        console.log(`  -> Checking for duplicates (Scoring System). Found ${dataRows.length} existing rows.`);
+        logger.debug(`Checking for duplicates. Found ${dataRows.length} existing rows.`);
 
         const targetAmount = parseAmount(data.total_amount);
         const targetDate = data.issue_date;
@@ -102,60 +62,30 @@ async function isDuplicate(sheets, spreadsheetId, data) {
 
             let score = 0;
 
-            // 1. Amount Match (40 pts)
-            if (Math.abs(existingAmount - targetAmount) < 0.05) {
-                score += 40;
-            }
+            if (Math.abs(existingAmount - targetAmount) < 0.05) score += 40;
+            if (existingIssueDate === targetDate) score += 30;
+            if (targetNumberNorm && normalizeString(existingNumber) === targetNumberNorm) score += 20;
+            if (targetSellerNorm && normalizeString(existingSellerTaxId) === targetSellerNorm) score += 20;
+            // Buyer NIP match skip (0 pts as per original comment)
 
-            // 2. Date Match (30 pts)
-            if (existingIssueDate === targetDate) {
-                score += 30;
-            }
-
-            // 3. Number Match (Normalized) (20 pts)
-            if (targetNumberNorm && normalizeString(existingNumber) === targetNumberNorm) {
-                score += 20;
-            }
-
-            // 4. Seller NIP Match (Normalized) (20 pts)
-            if (targetSellerNorm && normalizeString(existingSellerTaxId) === targetSellerNorm) {
-                score += 20;
-            }
-
-            // 5. Buyer NIP Match (Normalized) (0 pts)
-            // Reduced to 0 because it's almost always a match for the user's company, 
-            // causing false positives when Amount (40) + Date (30) match (Total 80).
-            if (targetBuyerNorm && normalizeString(existingBuyerTaxId) === targetBuyerNorm) {
-                score += 0;
-            }
-
-            // Log high scores for debugging
             if (score >= 60) {
-                console.log(`    Candidate Row Score: ${score}/100. (Num: ${existingNumber}, Date: ${existingIssueDate}, Amt: ${existingAmount})`);
+                logger.debug(`Candidate match score: ${score}/100`, { number: existingNumber, date: existingIssueDate, amount: existingAmount });
             }
 
-            // Threshold check
             if (score >= 80) {
-                console.log(`  -> DUPLICATE FOUND (Score ${score}): Document ${data.number} matches existing record.`);
+                logger.info(`Duplicate detected (Score ${score})`, { number: data.number });
                 return true;
             }
         }
-
         return false;
     } catch (error) {
-        console.error("Error checking for duplicates:", error.message);
+        logger.error("Error checking for duplicates", { error: error.message });
         return false;
     }
 }
 
 /**
  * Logs invoice data to Google Sheets.
- * @param {Object} data - The extracted invoice data.
- * @param {Object} emailInfo - Metadata about the email.
- * @param {Object} [injectedSheets] - Optional injected sheets instance.
- * @param {string} [injectedSpreadsheetId] - Optional injected spreadsheet ID.
- * @param {string} [driveLink] - Optional Google Drive link.
- * @returns {Promise<Object>} - Returns {isDuplicate: boolean, logged: boolean}
  */
 async function logToSheet(data, emailInfo, injectedSheets = null, injectedSpreadsheetId = null, driveLink = '') {
     const auth = getOAuth2Client();
@@ -163,60 +93,80 @@ async function logToSheet(data, emailInfo, injectedSheets = null, injectedSpread
     const spreadsheetId = injectedSpreadsheetId || config.spreadsheet_id;
 
     if (!spreadsheetId) {
-        console.warn("No SPREADSHEET_ID configured, skipping logging.");
+        logger.warn("No SPREADSHEET_ID configured, skipping logging.");
         return { isDuplicate: false, logged: false };
     }
 
-    // Check for duplicates
-    const duplicate = await isDuplicate(sheets, spreadsheetId, data);
+    // Check Sheet Duplicate
+    const isSheetDuplicate = await isDuplicate(sheets, spreadsheetId, data);
 
-    const status = duplicate ? 'DUPLICATE' : 'NEW';
+    // Check Infakt Duplicate (passed from caller via emailInfo or separate arg, 
+    // but better to keep signature compatible or use a new argument object).
+    // For now, let's assume `data` might have an `infaktDuplicate` flag or we change signature.
+    // The previous signature was: logToSheet(data, emailInfo, injectedSheets, injectedSpreadsheetId, driveLink)
+    // To minimize breakage, let's check if `data.infaktDuplicate` is present.
+    const isInfaktDuplicate = data.infaktDuplicate || false;
+
+    let status = 'NEW';
+    let duplicateType = null;
+
+    if (data.forceLogStatus) {
+        status = data.forceLogStatus;
+        if (isSheetDuplicate) duplicateType = 'sheet'; // Still track type
+    } else {
+        if (isSheetDuplicate && isInfaktDuplicate) {
+            status = 'DUPLICATE_BOTH';
+            duplicateType = 'both';
+        } else if (isSheetDuplicate) {
+            status = 'DUPLICATE_SHEET';
+            duplicateType = 'sheet';
+        } else if (isInfaktDuplicate) {
+            status = 'DUPLICATE_INFAKT';
+            duplicateType = 'infakt';
+        }
+    }
 
     const row = [
-        new Date().toISOString(), // Timestamp
-        emailInfo.from,           // Email From
-        emailInfo.subject,        // Email Subject
-        data.number,              // Document Number
-        data.issue_date,          // Issue Date
-        data.total_amount,        // Total Amount
-        data.currency,            // Currency
-        data.seller_name,         // Seller Name
-        data.seller_tax_id ? data.seller_tax_id.replace(/[\s-]/g, '') : '', // Seller NIP/Tax ID (normalized)
-        data.buyer_name,          // Buyer Name
-        data.buyer_tax_id ? data.buyer_tax_id.replace(/[\s-]/g, '') : '',   // Buyer NIP/Tax ID (normalized)
-        emailInfo.messageId,      // Gmail Message ID
-        status,                   // Status (NEW or DUPLICATE)
-        data.items || '',         // Items
-        data.justification || '',  // Creative Justification
-        driveLink || ''           // Google Drive Link
+        new Date().toISOString(),
+        emailInfo.from,
+        emailInfo.subject,
+        data.number,
+        data.issue_date,
+        data.total_amount,
+        data.currency,
+        data.seller_name,
+        data.seller_tax_id ? data.seller_tax_id.replace(/[\s-]/g, '') : '',
+        data.buyer_name,
+        data.buyer_tax_id ? data.buyer_tax_id.replace(/[\s-]/g, '') : '',
+        emailInfo.messageId,
+        status,
+        data.items || '',
+        data.justification || '',
+        driveLink || ''
     ];
 
-    const maxRetries = 3;
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-        try {
-            await sheets.spreadsheets.values.append({
-                spreadsheetId,
-                range: 'A:P', // Extended to column P (16 columns)
-                valueInputOption: 'USER_ENTERED',
-                requestBody: {
-                    values: [row],
-                },
-            });
-            console.log(`Logged to Google Sheet with status: ${status}`);
-            return { isDuplicate: duplicate, logged: true };
-        } catch (error) {
-            console.error(`Error logging to Google Sheet (Attempt ${attempt}/${maxRetries}):`);
-            console.error("  Error message:", error.message);
-            if (error.response?.data) {
-                console.error("  Response data:", JSON.stringify(error.response.data, null, 2));
-            }
-            if (attempt === maxRetries) {
-                return { isDuplicate: duplicate, logged: false };
-            }
-            // Wait 1 second before retry
-            await new Promise(resolve => setTimeout(resolve, 1000));
-        }
+    try {
+        await withRetry(() => sheets.spreadsheets.values.append({
+            spreadsheetId,
+            range: 'A:P',
+            valueInputOption: 'USER_ENTERED',
+            requestBody: {
+                values: [row],
+            },
+        }));
+        logger.info(`Logged to Google Sheet`, { status, number: data.number });
+
+        // Return duplicate status if ANY duplicate found
+        return {
+            isDuplicate: !!duplicateType,
+            duplicateType: duplicateType,
+            logged: true
+        };
+    } catch (error) {
+        logger.error(`Failed to log to Google Sheet after retries`, { error: error.message, number: data.number });
+        return { isDuplicate: !!duplicateType, logged: false };
     }
 }
 
+module.exports = { logToSheet, isDuplicate, normalizeString, parseAmount, getAllInvoices };
 module.exports = { logToSheet, isDuplicate, normalizeString, parseAmount, getAllInvoices };

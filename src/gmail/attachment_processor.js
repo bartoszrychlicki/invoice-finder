@@ -2,6 +2,8 @@ const { google } = require('googleapis');
 const { analyzeAttachment } = require('../openai');
 const { convertPdfToImage, decryptPdf } = require('../pdf');
 const config = require('../config');
+const logger = require('../utils/logger');
+const { withRetry } = require('../utils/retry');
 
 const gmail = google.gmail('v1');
 
@@ -13,73 +15,77 @@ async function processAttachment(auth, userId, message, part, errorLogs) {
     const isPdf = mimeType === 'application/pdf' || (mimeType === 'application/octet-stream' && part.filename.toLowerCase().endsWith('.pdf'));
     const subject = message.subject;
 
-    // Skip small files (icons, logos, footers) < 20KB
     if (part.body.size && part.body.size < 20000) {
-        console.log(`  -> Skipping small file: ${part.filename} (${part.body.size} bytes)`);
+        logger.debug(`Skipping small file`, { filename: part.filename, size: part.body.size });
         return null;
     }
 
-    console.log(`  Found attachment: ${part.filename} (${mimeType})`);
+    logger.debug(`Processing attachment`, { filename: part.filename, mimeType });
 
-    const attachment = await gmail.users.messages.attachments.get({
-        auth,
-        userId,
-        messageId: message.id,
-        id: part.body.attachmentId,
-    });
+    try {
+        const attachment = await withRetry(() => gmail.users.messages.attachments.get({
+            auth,
+            userId,
+            messageId: message.id,
+            id: part.body.attachmentId,
+        }));
 
-    const fileBufferOriginal = Buffer.from(attachment.data.data, 'base64');
-    let fileBuffer = fileBufferOriginal;
-    let analysisBuffer = fileBuffer;
-    let analysisMimeType = mimeType;
+        const fileBufferOriginal = Buffer.from(attachment.data.data, 'base64');
+        let fileBuffer = fileBufferOriginal;
+        let analysisBuffer = fileBuffer;
+        let analysisMimeType = mimeType;
 
-    // Convert PDF to Image for OpenAI Vision
-    if (isPdf) {
-        console.log(`    -> Converting PDF to Image for analysis...`);
-        try {
-            const conversionResult = await convertPdfToImage(fileBuffer, config.pdf_passwords || []);
-            analysisBuffer = conversionResult.imageBuffer;
-            analysisMimeType = 'image/png';
-            console.log(`    -> Conversion successful.`);
+        if (isPdf) {
+            logger.debug(`Converting PDF to Image`, { filename: part.filename });
+            try {
+                const conversionResult = await convertPdfToImage(fileBuffer, config.pdf_passwords || []);
+                analysisBuffer = conversionResult.imageBuffer;
+                analysisMimeType = 'image/png';
+                logger.debug(`Conversion successful`);
 
-            if (conversionResult.usedPassword) {
-                console.log(`    -> PDF was password protected. Decrypting for storage...`);
-                try {
-                    fileBuffer = await decryptPdf(fileBuffer, conversionResult.usedPassword);
-                    console.log(`    -> Decryption successful. File will be saved without password.`);
-                } catch (decryptError) {
-                    console.error(`    -> Decryption failed: ${decryptError.message}. Saving original file.`);
+                if (conversionResult.usedPassword) {
+                    logger.debug(`PDF decrypted for storage`);
+                    try {
+                        fileBuffer = await decryptPdf(fileBuffer, conversionResult.usedPassword);
+                    } catch (decryptError) {
+                        logger.error(`Decryption failed`, { error: decryptError.message });
+                    }
                 }
+            } catch (convError) {
+                logger.error(`PDF Conversion failed`, { filename: part.filename, error: convError.message });
+                errorLogs.push(`Error converting PDF ${part.filename} in email "${subject}": ${convError.message}`);
+                return null;
             }
-        } catch (convError) {
-            console.error(`    -> PDF Conversion failed: ${convError.message}`);
-            errorLogs.push(`Error converting PDF ${part.filename} in email "${subject}": ${convError.message}`);
+        }
+
+        let analysis;
+        try {
+            analysis = await analyzeAttachment(analysisBuffer, analysisMimeType);
+        } catch (aiError) {
+            logger.error(`OpenAI Analysis failed`, { filename: part.filename, error: aiError.message });
+            errorLogs.push(`Error analyzing attachment ${part.filename} in email "${subject}": ${aiError.message}`);
             return null;
         }
-    }
 
-    // Analyze with OpenAI
-    let analysis;
-    try {
-        analysis = await analyzeAttachment(analysisBuffer, analysisMimeType);
-    } catch (aiError) {
-        console.error(`    -> OpenAI Analysis failed: ${aiError.message}`);
-        errorLogs.push(`Error analyzing attachment ${part.filename} in email "${subject}": ${aiError.message}`);
+        if (!analysis || typeof analysis.is_invoice === 'undefined') {
+            logger.warn(`Analysis failed or returned invalid data`, { filename: part.filename });
+            errorLogs.push(`Analysis returned invalid data for ${part.filename} in email "${subject}"`);
+            return null;
+        }
+
+        return {
+            filename: part.filename,
+            mimeType: mimeType,
+            fileBuffer: fileBuffer,
+            analysis: analysis
+        };
+    } catch (error) {
+        logger.error(`Error processing attachment`, { filename: part.filename, error: error.message });
+        errorLogs.push(`Error processing attachment ${part.filename}: ${error.message}`);
         return null;
     }
-
-    if (!analysis || typeof analysis.is_invoice === 'undefined') {
-        console.log(`    -> Analysis failed or returned invalid data`);
-        errorLogs.push(`Analysis returned invalid data for ${part.filename} in email "${subject}"`);
-        return null;
-    }
-
-    return {
-        filename: part.filename,
-        mimeType: mimeType,
-        fileBuffer: fileBuffer,
-        analysis: analysis
-    };
 }
+
+module.exports = { processAttachment };
 
 module.exports = { processAttachment };
