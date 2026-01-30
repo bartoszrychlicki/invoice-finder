@@ -17,10 +17,6 @@ async function analyzeAttachment(imageBuffer, mimeType) {
     const base64Image = imageBuffer.toString('base64');
     const dataUrl = `data:${mimeType};base64,${base64Image}`;
 
-    const config = require('./config');
-    const buyerTaxId = config.buyer_tax_id || '9571130261';
-    const buyerName = config.buyer_name || 'Rychlicki Holding Sp. z o.o.';
-
     const prompt = `
     Analyze this image. Is it a fiscal document (invoice, receipt, bill)?
     
@@ -35,13 +31,28 @@ async function analyzeAttachment(imageBuffer, mimeType) {
     - currency: Currency code (e.g. PLN, EUR).
     - seller_name: Name of the seller/vendor.
     - seller_tax_id: Tax ID (NIP) of the seller.
-    - buyer_name: Name of the buyer.
-    - buyer_tax_id: Tax ID (NIP) of the buyer.
+    - seller_address: Full address of the seller (street, city, postal code).
+    - buyer_name: Name of the buyer (if visible).
+    - buyer_tax_id: Tax ID (NIP) of the buyer. CRITICAL: Only extract if EXPLICITLY printed next to buyer section. If buyer has no NIP visible -> return null. Do NOT guess or infer.
     - items: A comma-separated string of the main product/service names listed on the invoice (e.g. "Hosting Service, Domain Renewal").
+    - payment_status: One of "PAID", "UNPAID", or "UNKNOWN".
+      - "PAID" if you see phrases like: "opłacone", "zapłacono", "paid", "settled", "uregulowano", stamp "OPŁACONO".
+      - "UNPAID" if you see phrases like: "do zapłaty", "termin płatności", "payment due", "płatne do", or a future due date.
+      - "UNKNOWN" if payment status cannot be determined.
+    - payment_due_date: Payment due date (YYYY-MM-DD) if visible, otherwise null.
+    - bank_account: Seller's bank account number (IBAN or NRB format, 26 digits for Polish accounts). Extract only digits. If multiple accounts, prefer PLN account. If not visible, return null.
+    - is_foreign: Boolean. True if seller is a FOREIGN company (non-Polish). Detection rules:
+      1. Tax ID format: Polish NIP = exactly 10 digits. EU VAT format (like DE123456789, GB12345678) = foreign.
+      2. Address: If seller address contains country OTHER than "Poland" or "Polska" = foreign.
+      3. Legal form: If company name contains Ltd, GmbH, Inc, LLC, SAS, SARL, BV, AG, Corp, PLC = likely foreign.
+      4. Currency alone is NOT enough - PLN invoices can be from foreign companies, EUR invoices can be from Polish companies.
+      Return true ONLY if CONFIDENT the seller is foreign based on tax ID format or address.
 
-    SPECIAL RULE FOR BUYER:
-    - If you see NIP "${buyerTaxId}", that is the BUYER (${buyerName}).
-    - Do NOT confuse buyer and seller.
+    CRITICAL RULES FOR BUYER VS SELLER:
+    - The SELLER is the entity issuing the invoice (usually "Sprzedawca" section).
+    - The BUYER is the entity paying for goods/services (usually "Nabywca" or "Kupujący" section).
+    - NEVER confuse seller_tax_id with buyer_tax_id.
+    - If buyer section has NO NIP/Tax ID printed, buyer_tax_id MUST be null.
     
     Return ONLY raw JSON. No markdown formatting.
     `;

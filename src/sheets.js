@@ -29,7 +29,7 @@ async function getAllInvoices(sheets, spreadsheetId) {
     try {
         const response = await withRetry(() => sheets.spreadsheets.values.get({
             spreadsheetId,
-            range: 'A:M',
+            range: 'A:U',
         }));
         const rows = response.data.values || [];
         return rows.length > 0 && rows[0][0] === 'Timestamp' ? rows.slice(1) : rows;
@@ -142,21 +142,76 @@ async function logToSheet(data, emailInfo, injectedSheets = null, injectedSpread
         status,
         data.items || '',
         data.justification || '',
-        driveLink || ''
+        driveLink || '',
+        data.payment_status || 'UNKNOWN',
+        data.payment_due_date || '',
+        data.bank_account ? data.bank_account.replace(/[\s-]/g, '') : '',
+        data.seller_address || '',
+        '',  // Approved - user will check manually
+        '',  // Payment Date - filled when CSV is generated
+        data.is_foreign ? 'TRUE' : 'FALSE'  // Column W - Foreign seller
     ];
 
     try {
-        await withRetry(() => sheets.spreadsheets.values.append({
+        const appendResponse = await withRetry(() => sheets.spreadsheets.values.append({
             spreadsheetId,
-            range: 'A:P',
+            range: 'Arkusz1!A:W',
             valueInputOption: 'USER_ENTERED',
             requestBody: {
                 values: [row],
             },
         }));
-        logger.info(`Logged to Google Sheet`, { status, number: data.number });
 
-        // Return duplicate status if ANY duplicate found
+        // Verify the write was successful by checking the response
+        const updatedRange = appendResponse.data.updates?.updatedRange;
+        const updatedRows = appendResponse.data.updates?.updatedRows;
+
+        if (!updatedRange || updatedRows !== 1) {
+            logger.error(`Sheet write verification FAILED - API claimed success but no rows updated`, {
+                number: data.number,
+                updatedRange,
+                updatedRows
+            });
+
+            // Send alert email
+            await sendWriteFailureAlert(auth, data, 'API returned success but updatedRows !== 1');
+            return { isDuplicate: !!duplicateType, logged: false, verificationFailed: true };
+        }
+
+        // Double-check by reading back the last row
+        const verifyResponse = await sheets.spreadsheets.values.get({
+            spreadsheetId,
+            range: updatedRange
+        });
+
+        const writtenRow = verifyResponse.data.values?.[0];
+        const writtenNumber = writtenRow?.[3];
+
+        // Normalize both numbers for comparison (Google Sheets may auto-format invoice numbers)
+        const normalizedExpected = normalizeString(data.number);
+        const normalizedActual = normalizeString(writtenNumber);
+
+        // Check if numbers match after normalization OR if one contains the other
+        // (handles cases like "1/01/2026" being formatted to "01/01/2026")
+        const numbersMatch = normalizedActual === normalizedExpected ||
+            normalizedActual.includes(normalizedExpected) ||
+            normalizedExpected.includes(normalizedActual);
+
+        if (!writtenRow || !numbersMatch) {
+            logger.error(`Sheet write verification FAILED - data mismatch after write`, {
+                number: data.number,
+                expectedNumber: data.number,
+                actualNumber: writtenNumber,
+                normalizedExpected,
+                normalizedActual
+            });
+
+            await sendWriteFailureAlert(auth, data, `Data mismatch: expected "${data.number}" but got "${writtenNumber}"`);
+            return { isDuplicate: !!duplicateType, logged: false, verificationFailed: true };
+        }
+
+        logger.info(`Logged to Google Sheet (verified)`, { status, number: data.number, range: updatedRange });
+
         return {
             isDuplicate: !!duplicateType,
             duplicateType: duplicateType,
@@ -164,9 +219,66 @@ async function logToSheet(data, emailInfo, injectedSheets = null, injectedSpread
         };
     } catch (error) {
         logger.error(`Failed to log to Google Sheet after retries`, { error: error.message, number: data.number });
+
+        // Send alert email on exception
+        await sendWriteFailureAlert(auth, data, error.message);
         return { isDuplicate: !!duplicateType, logged: false };
     }
 }
 
-module.exports = { logToSheet, isDuplicate, normalizeString, parseAmount, getAllInvoices };
+/**
+ * Sends an email alert when sheet write verification fails.
+ */
+async function sendWriteFailureAlert(auth, data, reason) {
+    const config = require('./config');
+    const gmail = google.gmail({ version: 'v1', auth });
+    const adminEmail = config.admin_email;
+
+    if (!adminEmail) {
+        logger.warn('No ADMIN_EMAIL configured, cannot send write failure alert');
+        return;
+    }
+
+    const subject = `ALERT: Sheet Write Failure - ${data.number || 'Unknown Invoice'}`;
+    const body = [
+        `=== SHEET WRITE FAILURE ALERT ===`,
+        ``,
+        `Timestamp: ${new Date().toISOString()}`,
+        `Invoice Number: ${data.number || 'N/A'}`,
+        `Seller: ${data.seller_name || 'N/A'}`,
+        `Amount: ${data.total_amount} ${data.currency}`,
+        ``,
+        `Failure Reason: ${reason}`,
+        ``,
+        `ACTION REQUIRED: Please manually verify this invoice in the spreadsheet.`,
+        ``,
+        `=== END OF ALERT ===`
+    ].join('\n');
+
+    const rawMessage = [
+        `From: me`,
+        `To: ${adminEmail}`,
+        `Subject: ${subject}`,
+        `Content-Type: text/plain; charset="UTF-8"`,
+        ``,
+        body
+    ].join('\r\n');
+
+    const encodedMessage = Buffer.from(rawMessage)
+        .toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+
+    try {
+        await gmail.users.messages.send({
+            userId: 'me',
+            requestBody: { raw: encodedMessage }
+        });
+        logger.info(`Sent sheet write failure alert`, { to: adminEmail, invoice: data.number });
+    } catch (e) {
+        logger.error(`Failed to send write failure alert email`, { error: e.message });
+    }
+}
+
 module.exports = { logToSheet, isDuplicate, normalizeString, parseAmount, getAllInvoices };
