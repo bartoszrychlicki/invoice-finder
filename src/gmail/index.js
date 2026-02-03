@@ -15,6 +15,7 @@ const { validateBuyer } = require('./validator');
 const { markEmailAsProcessed } = require('./post_processor');
 const { sendInvoiceEmail, sendErrorEmail } = require('./notifier');
 const { getAllInfaktInvoices, checkInfaktDuplicate } = require('../infakt/api');
+const { wasSentToInfakt } = require('./sent_checker');
 
 const gmail = google.gmail('v1');
 
@@ -73,7 +74,7 @@ async function scanEmails(testMode = false, timeRange = 24) {
                     }
                 }
 
-                const invoiceKeywords = ['faktura', 'faktury', 'invoice', 'rachunek', 'paragon', 'inv', 'receipt', 'bill', 'dokument sprzedaży', 'dokument sprzedazy', 'fakturka', 'fv'];
+                const invoiceKeywords = ['faktura', 'faktury', 'invoice', 'rachunek', 'paragon', 'inv', 'receipt', 'bill', 'dokument sprzedaży', 'dokument sprzedazy', 'fakturka', 'fv', 'korekta', 'korekty', 'credit memo'];
                 const emailText = `${subject} ${from} ${to}`.toLowerCase();
                 const attachmentFilenames = parts.filter(p => p.filename).map(p => p.filename.toLowerCase()).join(' ');
                 const labelNames = (msgDetails.data.labelIds || []).join(' ').toLowerCase();
@@ -97,13 +98,25 @@ async function scanEmails(testMode = false, timeRange = 24) {
                         logger.info(`Identified as INVOICE`, { filename });
 
                         const validation = validateBuyer(analysis, from, subject);
+                        logger.info(`Buyer validation result`, {
+                            filename,
+                            isValid: validation.isValid,
+                            reason: validation.reason,
+                            expectedNip: validation.details.expectedNip,
+                            foundNip: validation.details.foundNip,
+                            expectedNames: validation.details.expectedNames,
+                            foundName: validation.details.foundName
+                        });
                         if (!validation.isValid) {
-                            logger.info(`Skipping invoice: ${validation.reason}`, { buyer: analysis.data.buyer_name });
+                            logger.info(`Skipping invoice: ${validation.reason}`, { buyer: analysis.data.buyer_name, buyerNip: analysis.data.buyer_tax_id });
                             continue;
                         }
 
                         // Check Infakt duplicate
-                        const isInfaktDuplicate = config.check_infakt_duplicates ? checkInfaktDuplicate(analysis.data, infaktInvoices) : false;
+                        const isInfaktDuplicateApi = config.check_infakt_duplicates ? checkInfaktDuplicate(analysis.data, infaktInvoices) : false;
+                        const isSentToInfakt = await wasSentToInfakt(auth, filename);
+                        const isInfaktDuplicate = isInfaktDuplicateApi || isSentToInfakt;
+
                         analysis.data.infaktDuplicate = isInfaktDuplicate;
 
                         const isSheetDuplicate = await isDuplicate(google.sheets({ version: 'v4', auth }), config.spreadsheet_id, analysis.data);
@@ -152,9 +165,10 @@ async function scanEmails(testMode = false, timeRange = 24) {
                             }
                         }
 
-                        if (sheetResult.logged) {
-                            await markEmailAsProcessed(auth, userId, message.id, processedLabelId);
-                        }
+                        // DISABLED: Don't archive invoices after processing - keep them in inbox
+                        // if (sheetResult.logged) {
+                        //     await markEmailAsProcessed(auth, userId, message.id, processedLabelId);
+                        // }
 
                         results.push({
                             messageId: message.id,
