@@ -121,8 +121,22 @@ async function scanEmails(testMode = false, timeRange = 24) {
 
                         const isSheetDuplicate = await isDuplicate(google.sheets({ version: 'v4', auth }), config.spreadsheet_id, analysis.data);
 
-                        // Processing Condition: Process if NOT in Infakt (regardless of Sheet)
-                        const shouldProcess = !isInfaktDuplicate;
+                        // Processing Condition: Only process if NOT a duplicate in either system
+                        const shouldProcess = !isInfaktDuplicate && !isSheetDuplicate;
+
+                        if (!shouldProcess) {
+                            const reasons = [];
+                            if (isInfaktDuplicate) reasons.push('Infakt');
+                            if (isSheetDuplicate) reasons.push('Sheet');
+                            logger.info(`DUPLICATE SKIPPED - not sending to Drive or Infakt`, {
+                                filename,
+                                number: analysis.data.number,
+                                duplicateIn: reasons.join(' + '),
+                                infaktApi: isInfaktDuplicateApi,
+                                sentToInfakt: isSentToInfakt,
+                                sheetDuplicate: isSheetDuplicate
+                            });
+                        }
 
                         let driveLink = '';
                         if (shouldProcess) {
@@ -143,20 +157,15 @@ async function scanEmails(testMode = false, timeRange = 24) {
                                 errorLogs.push(`Drive error for ${filename}: ${e.message}`);
                             }
                         } else {
-                            const reason = []
+                            const reason = [];
                             if (isInfaktDuplicate) reason.push('Infakt duplicate');
-                            if (isSheetDuplicate) reason.push('Sheet duplicate'); // Informational
+                            if (isSheetDuplicate) reason.push('Sheet duplicate');
                             analysis.data.justification = `N/A (${reason.join(', ')})`;
-                        }
-
-                        // Determine status override for Sheet
-                        if (shouldProcess && isSheetDuplicate) {
-                            analysis.data.forceLogStatus = 'RESENT';
                         }
 
                         const sheetResult = await logToSheet(analysis.data, { from, subject, messageId: message.id }, null, null, driveLink);
 
-                        // Send email if processed
+                        // Send email to Infakt only if NOT a duplicate
                         if (sheetResult.logged && shouldProcess) {
                             if (!testMode) {
                                 await sendInvoiceEmail(auth, filename, mimeType, fileBuffer, analysis.data);
@@ -165,10 +174,14 @@ async function scanEmails(testMode = false, timeRange = 24) {
                             }
                         }
 
-                        // DISABLED: Don't archive invoices after processing - keep them in inbox
-                        // if (sheetResult.logged) {
-                        //     await markEmailAsProcessed(auth, userId, message.id, processedLabelId);
-                        // }
+                        // Label email as processed (keeps in inbox but prevents re-scanning)
+                        if (sheetResult.logged && processedLabelId) {
+                            try {
+                                await markEmailAsProcessed(auth, userId, message.id, processedLabelId, false);
+                            } catch (labelError) {
+                                logger.warn(`Failed to label email as processed`, { messageId: message.id, error: labelError.message });
+                            }
+                        }
 
                         results.push({
                             messageId: message.id,
